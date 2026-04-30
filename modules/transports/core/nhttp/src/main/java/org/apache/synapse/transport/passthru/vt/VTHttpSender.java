@@ -38,8 +38,10 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 
 import org.apache.axis2.addressing.AddressingHelper;
+import org.apache.axis2.engine.AxisEngine;
 import org.apache.axis2.transport.base.BaseConstants;
 import org.apache.axis2.transport.base.threads.WorkerPool;
+import org.apache.axis2.wsdl.WSDLConstants;
 import org.apache.synapse.transport.http.conn.Scheme;
 import org.apache.synapse.transport.passthru.PassThroughConstants;
 import org.apache.synapse.transport.passthru.config.TargetConfiguration;
@@ -700,6 +702,15 @@ public class VTHttpSender extends AbstractHandler implements
 
             populateResponseOnMessageContext(msgContext, response);
 
+            // Signal the blocking OperationClient that the response is ready.
+            // CommonsHTTPTransportSender calls AxisEngine.receive() from within
+            // its invoke() to populate the IN label of the OperationContext and
+            // unblock operationClient.execute(true). Without this call,
+            // execute(true) never unblocks (or times out and throws AxisFault),
+            // which causes BlockingMsgSender to treat the call as failed and
+            // suspend the endpoint — even though the backend responded.
+            signalResponseReceived(msgContext);
+
         } catch (IOException e) {
             // Make sure we don't leak the response if execute succeeded but
             // response population failed.
@@ -806,6 +817,75 @@ public class VTHttpSender extends AbstractHandler implements
         if (log.isDebugEnabled()) {
             log.debug("VTHttpSender streaming response (no OM build): status=" + statusCode
                     + ", contentType=" + (ctHeader != null ? ctHeader.getValue() : "n/a"));
+        }
+    }
+
+    /**
+     * Creates a minimal IN-label response {@link MessageContext} and calls
+     * {@link AxisEngine#receive} so that the blocking
+     * {@code OperationClient.execute(true)} in {@code BlockingMsgSender.sendReceive()}
+     * can complete normally.
+     * <p>
+     * This mirrors what {@code CommonsHTTPTransportSender} does: the transport
+     * sender is responsible for both sending the request AND signalling response
+     * receipt before returning from {@code invoke()}.  Without this call the IN
+     * label of the OperationContext is never populated, {@code execute(true)}
+     * either blocks forever or times out, and Synapse marks the endpoint as
+     * suspended even though the backend responded successfully.
+     * <p>
+     * The response context carries only a default empty SOAP envelope plus the
+     * HTTP status / streaming properties copied from {@code outMsgCtx} (where
+     * {@link #populateResponseOnMessageContext} already set them).  No
+     * {@code TRANSPORT_IN} is set, so Axis2 does not attempt to parse a body.
+     */
+    private void signalResponseReceived(MessageContext outMsgCtx) {
+        try {
+            MessageContext responseMsgCtx = new MessageContext();
+            responseMsgCtx.setOperationContext(outMsgCtx.getOperationContext());
+            responseMsgCtx.setConfigurationContext(outMsgCtx.getConfigurationContext());
+            responseMsgCtx.setAxisService(outMsgCtx.getAxisService());
+            responseMsgCtx.setAxisOperation(outMsgCtx.getAxisOperation());
+            if (outMsgCtx.getAxisOperation() != null) {
+                responseMsgCtx.setAxisMessage(
+                        outMsgCtx.getAxisOperation().getMessage(
+                                WSDLConstants.MESSAGE_LABEL_IN_VALUE));
+            }
+            responseMsgCtx.setServerSide(false);
+            responseMsgCtx.setDoingREST(outMsgCtx.isDoingREST());
+
+            // Copy HTTP status + streaming properties from the populated outMsgCtx
+            // so BlockingMsgSender.sendReceive() can read them from the IN context.
+            copyIfSet(outMsgCtx, responseMsgCtx, PassThroughConstants.HTTP_SC);
+            copyIfSet(outMsgCtx, responseMsgCtx, PassThroughConstants.HTTP_SC_DESC);
+            copyIfSet(outMsgCtx, responseMsgCtx, "transport.http.statusCode");
+            copyIfSet(outMsgCtx, responseMsgCtx, PassThroughConstants.PASS_THROUGH_PIPE);
+            copyIfSet(outMsgCtx, responseMsgCtx, VTConstants.VT_INPUT_STREAM_PIPE);
+            copyIfSet(outMsgCtx, responseMsgCtx, PassThroughConstants.MESSAGE_BUILDER_INVOKED);
+            copyIfSet(outMsgCtx, responseMsgCtx, MessageContext.TRANSPORT_HEADERS);
+            copyIfSet(outMsgCtx, responseMsgCtx, Constants.Configuration.CONTENT_TYPE);
+
+            // Default envelope — no TRANSPORT_IN means no body parsing
+            SOAPFactory factory = outMsgCtx.isSOAP11()
+                    ? OMAbstractFactory.getSOAP11Factory()
+                    : OMAbstractFactory.getSOAP12Factory();
+            try {
+                responseMsgCtx.setEnvelope(factory.getDefaultEnvelope());
+            } catch (Exception ignore) { }
+
+            AxisEngine.receive(responseMsgCtx);
+
+        } catch (AxisFault af) {
+            // Log and continue: the stash is already set so the response will
+            // be delivered via VTBlockingServerWorker.submitResponse() regardless.
+            log.warn("VTHttpSender: AxisEngine.receive() for response signalling failed: "
+                    + af.getMessage(), af);
+        }
+    }
+
+    private static void copyIfSet(MessageContext from, MessageContext to, String key) {
+        Object val = from.getProperty(key);
+        if (val != null) {
+            to.setProperty(key, val);
         }
     }
 
