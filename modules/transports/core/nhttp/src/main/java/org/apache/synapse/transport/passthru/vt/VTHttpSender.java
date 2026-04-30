@@ -1,6 +1,8 @@
 package org.apache.synapse.transport.passthru.vt;
 
+import org.apache.axiom.om.OMAbstractFactory;
 import org.apache.axiom.om.OMOutputFormat;
+import org.apache.axiom.soap.SOAPFactory;
 import org.apache.axis2.AxisFault;
 import org.apache.axis2.Constants;
 import org.apache.axis2.addressing.EndpointReference;
@@ -63,10 +65,12 @@ import java.util.zip.GZIPOutputStream;
  * Migrated from the legacy Commons HttpClient 3.x API to HttpClient 4.5.13.
  * Key changes:
  * <ul>
- *   <li>{@code HttpClient} → {@link CloseableHttpClient}</li>
- *   <li>{@code MultiThreadedHttpConnectionManager} → {@link PoolingHttpClientConnectionManager}</li>
- *   <li>{@code HttpMethod} → {@code HttpRequestBase} (for cleanup)</li>
- *   <li>Connection/socket timeouts via {@link RequestConfig} instead of {@code HttpConnectionManagerParams}</li>
+ * <li>{@code HttpClient} → {@link CloseableHttpClient}</li>
+ * <li>{@code MultiThreadedHttpConnectionManager} →
+ * {@link PoolingHttpClientConnectionManager}</li>
+ * <li>{@code HttpMethod} → {@code HttpRequestBase} (for cleanup)</li>
+ * <li>Connection/socket timeouts via {@link RequestConfig} instead of
+ * {@code HttpConnectionManagerParams}</li>
  * </ul>
  */
 public class VTHttpSender extends AbstractHandler implements
@@ -81,13 +85,15 @@ public class VTHttpSender extends AbstractHandler implements
     private TransportOutDescription transportOut;
 
     /**
-     * Default HTTP version as configured in <tt>axis2.xml</tt>. This may be overridden on a per
+     * Default HTTP version as configured in <tt>axis2.xml</tt>. This may be
+     * overridden on a per
      * message basis using the {@link HTTPConstants#HTTP_PROTOCOL_VERSION} property.
      */
     private String defaultHttpVersion = HTTPConstants.HEADER_PROTOCOL_11;
 
     /**
-     * Specifies whether chunked encoding is enabled by default. This is configured in
+     * Specifies whether chunked encoding is enabled by default. This is configured
+     * in
      * <tt>axis2.xml</tt> and may be overridden on a per message basis using the
      * {@link HTTPConstants#CHUNKED} property.
      */
@@ -103,10 +109,15 @@ public class VTHttpSender extends AbstractHandler implements
      */
     private PoolingHttpClientConnectionManager connectionManager;
 
-    /** Protocol scheme (passthrough support, merged from VTPassThroughHttpSender). */
+    /**
+     * Protocol scheme (passthrough support, merged from VTPassThroughHttpSender).
+     */
     private Scheme scheme;
 
-    /** Target configuration (passthrough support, merged from VTPassThroughHttpSender). */
+    /**
+     * Target configuration (passthrough support, merged from
+     * VTPassThroughHttpSender).
+     */
     private TargetConfiguration targetConfiguration;
 
     /** Sender state. */
@@ -115,7 +126,8 @@ public class VTHttpSender extends AbstractHandler implements
     // ------------------------------------------------------------------ lifecycle
 
     public void cleanup(MessageContext msgContext) throws AxisFault {
-        // In HttpClient 4.5.x the connection is released when the response entity is consumed
+        // In HttpClient 4.5.x the connection is released when the response entity is
+        // consumed
         // or when the CloseableHttpResponse is closed. HttpMethod no longer exists.
         // For backward compatibility we still check the property and attempt cleanup.
         Object requestBase = msgContext.getProperty(HTTPConstants.HTTP_METHOD);
@@ -133,7 +145,7 @@ public class VTHttpSender extends AbstractHandler implements
     }
 
     public void init(ConfigurationContext confContext,
-                     TransportOutDescription transportOut) throws AxisFault {
+            TransportOutDescription transportOut) throws AxisFault {
         this.transportOut = transportOut;
 
         // ---- HTTP version (1.0 / 1.1) ----
@@ -147,7 +159,7 @@ public class VTHttpSender extends AbstractHandler implements
 
                 if ((transferEncoding != null)
                         && HTTPConstants.HEADER_TRANSFER_ENCODING_CHUNKED
-                        .equals(transferEncoding.getValue())) {
+                                .equals(transferEncoding.getValue())) {
                     defaultChunked = true;
                 }
             } else if (HTTPConstants.HEADER_PROTOCOL_10.equals(version.getValue())) {
@@ -186,7 +198,8 @@ public class VTHttpSender extends AbstractHandler implements
             Parameter totalConnectionsParam = transportOut.getParameter(
                     HTTPConstants.MAX_TOTAL_CONNECTIONS);
 
-            // Replace MultiThreadedHttpConnectionManager with PoolingHttpClientConnectionManager
+            // Replace MultiThreadedHttpConnectionManager with
+            // PoolingHttpClientConnectionManager
             connectionManager = new PoolingHttpClientConnectionManager();
 
             // Default max connections per route (was "per host" in 3.x)
@@ -220,7 +233,8 @@ public class VTHttpSender extends AbstractHandler implements
             }
 
             // In HttpClient 4.5.x, timeouts are set via RequestConfig (not on the
-            // connection manager). Build a default RequestConfig and apply it to the client.
+            // connection manager). Build a default RequestConfig and apply it to the
+            // client.
             RequestConfig defaultRequestConfig = RequestConfig.custom()
                     .setSocketTimeout(soTimeout)
                     .setConnectTimeout(connectionTimeout)
@@ -232,8 +246,10 @@ public class VTHttpSender extends AbstractHandler implements
                     .setDefaultRequestConfig(defaultRequestConfig)
                     .build();
 
-            confContext.setProperty(HTTPConstants.REUSE_HTTP_CLIENT, "true");
-            confContext.setProperty(HTTPConstants.CACHED_HTTP_CLIENT, httpClient);
+            // Store under a VT-specific key to avoid collision with Axis2's legacy
+            // CommonsHTTPTransportSender, which caches an org.apache.commons.httpclient.HttpClient
+            // (3.x) under HTTPConstants.CACHED_HTTP_CLIENT and would overwrite ours.
+            confContext.setProperty(VTConstants.VT_CACHED_HTTP_CLIENT, httpClient);
         }
 
         // --- Passthrough support (merged from VTPassThroughHttpSender) ---
@@ -245,8 +261,8 @@ public class VTHttpSender extends AbstractHandler implements
             workerPool = (WorkerPool) wpObj;
         }
 
-        PassThroughTransportMetricsCollector metrics =
-                new PassThroughTransportMetricsCollector(false, scheme.getName());
+        PassThroughTransportMetricsCollector metrics = new PassThroughTransportMetricsCollector(false,
+                scheme.getName());
 
         targetConfiguration = new TargetConfiguration(confContext, transportOut, workerPool, metrics, null);
         targetConfiguration.build();
@@ -265,13 +281,15 @@ public class VTHttpSender extends AbstractHandler implements
     }
 
     public void pause() throws AxisFault {
-        if (state != BaseConstants.STARTED) return;
+        if (state != BaseConstants.STARTED)
+            return;
         state = BaseConstants.PAUSED;
         log.info("VTHttpSender Paused");
     }
 
     public void resume() throws AxisFault {
-        if (state != BaseConstants.PAUSED) return;
+        if (state != BaseConstants.PAUSED)
+            return;
         state = BaseConstants.STARTED;
         log.info("VTHttpSender Resumed");
     }
@@ -349,6 +367,26 @@ public class VTHttpSender extends AbstractHandler implements
                 }
             }
 
+            // --- Response short-circuit ---
+            // OUT_TRANSPORT_INFO is set by VTBlockingServerWorker on axisInMsgCtx
+            // and copied to axisOutMsgCtx by BlockingMsgSender (so this sender
+            // can stash the streaming response on the worker during the backend
+            // call). To distinguish the response path from the backend call,
+            // we additionally require Synapse's ISRESPONSE_PROPERTY which is
+            // set by Axis2Sender.sendBack() before AxisEngine.send().
+            // Use the string literal "synapse.isresponse" to avoid a cross-module
+            // dependency on SynapseConstants from the nhttp transport module.
+            if (msgContext.getProperty(Constants.OUT_TRANSPORT_INFO)
+                    instanceof VTBlockingServerWorker
+                    && Boolean.TRUE.equals(msgContext.getProperty("synapse.isresponse"))) {
+                submitResponse(msgContext);
+                if (msgContext.getOperationContext() != null) {
+                    msgContext.getOperationContext().setProperty(
+                            Constants.RESPONSE_WRITTEN, Constants.VALUE_TRUE);
+                }
+                return InvocationResponse.CONTINUE;
+            }
+
             // --- EPR resolution ---
             EndpointReference epr = null;
             String transportURL = (String) msgContext
@@ -402,7 +440,8 @@ public class VTHttpSender extends AbstractHandler implements
         return InvocationResponse.CONTINUE;
     }
 
-    // ------------------------------------------------------------------ output stream path
+    // ------------------------------------------------------------------ output
+    // stream path
 
     /**
      * Send a message (which must be a response) via the OutputStream sitting in the
@@ -413,18 +452,18 @@ public class VTHttpSender extends AbstractHandler implements
      * @throws AxisFault if a general problem arises
      */
     private void sendUsingOutputStream(MessageContext msgContext,
-                                       OMOutputFormat format) throws AxisFault {
+            OMOutputFormat format) throws AxisFault {
         OutputStream out = (OutputStream) msgContext.getProperty(MessageContext.TRANSPORT_OUT);
 
         OutTransportInfo transportInfo = (OutTransportInfo) msgContext
                 .getProperty(Constants.OUT_TRANSPORT_INFO);
 
-        if (transportInfo == null) throw new AxisFault("No transport info in MessageContext");
+        if (transportInfo == null)
+            throw new AxisFault("No transport info in MessageContext");
 
         ServletBasedOutTransportInfo servletBasedOutTransportInfo = null;
         if (transportInfo instanceof ServletBasedOutTransportInfo) {
-            servletBasedOutTransportInfo =
-                    (ServletBasedOutTransportInfo) transportInfo;
+            servletBasedOutTransportInfo = (ServletBasedOutTransportInfo) transportInfo;
 
             // If sending a fault, set HTTP status code to 500
             if (msgContext.isFault()) {
@@ -440,7 +479,8 @@ public class VTHttpSender extends AbstractHandler implements
         format.setAutoCloseWriter(true);
 
         MessageFormatter messageFormatter = MessageProcessorSelector.getMessageFormatter(msgContext);
-        if (messageFormatter == null) throw new AxisFault("No MessageFormatter in MessageContext");
+        if (messageFormatter == null)
+            throw new AxisFault("No MessageFormatter in MessageContext");
 
         try {
             transportInfo.setContentType(
@@ -471,20 +511,21 @@ public class VTHttpSender extends AbstractHandler implements
     }
 
     /**
-     * Helper: add custom HTTP headers from MessageContext to a ServletBasedOutTransportInfo.
+     * Helper: add custom HTTP headers from MessageContext to a
+     * ServletBasedOutTransportInfo.
      */
     @SuppressWarnings("unchecked")
     private void addCustomHeaders(MessageContext msgContext,
-                                  ServletBasedOutTransportInfo transportInfo) {
+            ServletBasedOutTransportInfo transportInfo) {
         Object customHeaders = msgContext.getProperty(HTTPConstants.HTTP_HEADERS);
-        if (customHeaders == null) return;
+        if (customHeaders == null)
+            return;
 
         if (customHeaders instanceof List) {
             for (Object obj : (List<?>) customHeaders) {
                 // Note: this is the commons-httpclient Header in Axis2's classpath.
                 // If Axis2 has been updated to use HttpClient 4.x Header, adjust accordingly.
-                org.apache.commons.httpclient.Header header =
-                        (org.apache.commons.httpclient.Header) obj;
+                org.apache.commons.httpclient.Header header = (org.apache.commons.httpclient.Header) obj;
                 if (header != null) {
                     transportInfo.addHeader(header.getName(), header.getValue());
                 }
@@ -499,18 +540,19 @@ public class VTHttpSender extends AbstractHandler implements
     }
 
     /**
-     * Helper: add custom HTTP headers from MessageContext to an AxisHttpResponseImpl.
+     * Helper: add custom HTTP headers from MessageContext to an
+     * AxisHttpResponseImpl.
      */
     @SuppressWarnings("unchecked")
     private void addCustomHeadersToAxisResponse(MessageContext msgContext,
-                                                AxisHttpResponseImpl transportInfo) {
+            AxisHttpResponseImpl transportInfo) {
         Object customHeaders = msgContext.getProperty(HTTPConstants.HTTP_HEADERS);
-        if (customHeaders == null) return;
+        if (customHeaders == null)
+            return;
 
         if (customHeaders instanceof List) {
             for (Object obj : (List<?>) customHeaders) {
-                org.apache.commons.httpclient.Header header =
-                        (org.apache.commons.httpclient.Header) obj;
+                org.apache.commons.httpclient.Header header = (org.apache.commons.httpclient.Header) obj;
                 if (header != null) {
                     transportInfo.addHeader(header.getName(), header.getValue());
                 }
@@ -524,10 +566,11 @@ public class VTHttpSender extends AbstractHandler implements
         }
     }
 
-    // ------------------------------------------------------------------ commons sender path
+    // ------------------------------------------------------------------ commons
+    // sender path
 
     private void writeMessageWithCommons(MessageContext messageContext,
-                                         EndpointReference toEPR, OMOutputFormat format)
+            EndpointReference toEPR, OMOutputFormat format)
             throws AxisFault {
 
         // Streaming fast path: if a VTInputStreamPipe is available on the context
@@ -538,8 +581,12 @@ public class VTHttpSender extends AbstractHandler implements
         Object pipeObj = messageContext.getProperty(PassThroughConstants.PASS_THROUGH_PIPE);
         boolean builderInvoked = Boolean.TRUE.equals(
                 messageContext.getProperty(PassThroughConstants.MESSAGE_BUILDER_INVOKED));
-        if (pipeObj instanceof VTInputStreamPipe && !builderInvoked) {
-            sendStreamedRequest(messageContext, toEPR, (VTInputStreamPipe) pipeObj);
+        VTInputStreamPipe vtPipeForSend = (pipeObj instanceof VTInputStreamPipe)
+                ? (VTInputStreamPipe) pipeObj : null;
+        boolean vtMode = Boolean.TRUE.equals(messageContext.getProperty(VTConstants.VT_TRANSPORT_ACTIVE))
+                || vtPipeForSend != null;
+        if (vtMode && !builderInvoked) {
+            sendStreamedRequest(messageContext, toEPR, vtPipeForSend);
             return;
         }
 
@@ -579,7 +626,8 @@ public class VTHttpSender extends AbstractHandler implements
         }
     }
 
-    // ------------------------------------------------------------------ streaming sender path
+    // ------------------------------------------------------------------ streaming
+    // sender path
 
     /**
      * Send the outbound request by streaming the body directly from the
@@ -593,7 +641,7 @@ public class VTHttpSender extends AbstractHandler implements
      * response envelope via its standard builder pipeline.
      */
     private void sendStreamedRequest(MessageContext msgContext, EndpointReference toEPR,
-                                     VTInputStreamPipe vtPipe) throws AxisFault {
+            VTInputStreamPipe vtPipe) throws AxisFault {
         CloseableHttpResponse response = null;
         try {
             String url = toEPR.getAddress();
@@ -631,15 +679,14 @@ public class VTHttpSender extends AbstractHandler implements
                 } catch (Exception parseEx) {
                     parsedCT = ContentType.APPLICATION_OCTET_STREAM;
                 }
-                InputStream bodyStream = vtPipe.getInputStream();
+                InputStream bodyStream = vtPipe != null ? vtPipe.getInputStream() : null;
                 if (bodyStream != null) {
                     reqBuilder.setEntity(new InputStreamEntity(bodyStream, parsedCT));
                 }
             }
 
-            CloseableHttpClient httpClient = (CloseableHttpClient) msgContext
-                    .getConfigurationContext().getProperty(HTTPConstants.CACHED_HTTP_CLIENT);
-            if (httpClient == null) {
+            if (!(msgContext.getConfigurationContext()
+                    .getProperty(VTConstants.VT_CACHED_HTTP_CLIENT) instanceof CloseableHttpClient httpClient)) {
                 throw new AxisFault("VT cached HttpClient not available — ensure VTHttpSender "
                         + "is registered in axis2_blocking_client.xml with cacheHttpClient=true");
             }
@@ -657,7 +704,10 @@ public class VTHttpSender extends AbstractHandler implements
             // Make sure we don't leak the response if execute succeeded but
             // response population failed.
             if (response != null) {
-                try { response.close(); } catch (IOException ignore) { }
+                try {
+                    response.close();
+                } catch (IOException ignore) {
+                }
             }
             log.debug(e);
             throw AxisFault.makeFault(e);
@@ -666,18 +716,35 @@ public class VTHttpSender extends AbstractHandler implements
 
     /**
      * Populate the message context with the HTTP response status, headers, and
-     * body input stream, in the same shape Axis2's {@code AbstractHTTPSender}
-     * leaves things — so {@code OperationClient.execute()} → builder pipeline
-     * can read the response via {@code TRANSPORT_IN}.
+     * response body pipe for end-to-end streaming.
+     * <p>
+     * Instead of setting {@code TRANSPORT_IN} (which would trigger Axis2's
+     * builder pipeline), the response body is wrapped in a
+     * {@link VTInputStreamPipe} and placed on {@code PASS_THROUGH_PIPE} and
+     * {@code VT_INPUT_STREAM_PIPE}. A default empty SOAP envelope is set so
+     * that downstream {@code getEnvelope()} calls don't force a build.
+     * This mirrors the NIO {@code ClientWorker} pattern.
+     * </p>
+     * <p>
+     * If a content-aware mediator runs after {@code <call/>},
+     * {@code RelayUtils.buildMessage()} will drain the pipe, build the OM tree,
+     * and set {@code MESSAGE_BUILDER_INVOKED=true} — falling back to the
+     * standard OM-tree response path.
+     * </p>
      */
     private void populateResponseOnMessageContext(MessageContext msgContext,
-                                                  CloseableHttpResponse response)
+            CloseableHttpResponse response)
             throws IOException {
         int statusCode = response.getStatusLine().getStatusCode();
         msgContext.setProperty(HTTPConstants.MC_HTTP_STATUS_CODE, statusCode);
         // SynapseConstants.HTTP_SENDER_STATUSCODE — string literal to avoid a
         // core-module dependency from the transports/nhttp module.
         msgContext.setProperty("transport.http.statusCode", String.valueOf(statusCode));
+        // PassThrough-compatible status properties for
+        // VTBlockingServerWorker.submitResponse()
+        msgContext.setProperty(PassThroughConstants.HTTP_SC, statusCode);
+        msgContext.setProperty(PassThroughConstants.HTTP_SC_DESC,
+                response.getStatusLine().getReasonPhrase());
 
         Map<String, String> respHeaders = new HashMap<>();
         for (Header h : response.getAllHeaders()) {
@@ -690,15 +757,56 @@ public class VTHttpSender extends AbstractHandler implements
             msgContext.setProperty(Constants.Configuration.CONTENT_TYPE, ctHeader.getValue());
         }
 
+        // --- Response streaming setup ---
+        // Wrap the response body InputStream in a VTInputStreamPipe and set it
+        // on both the canonical Synapse pipe key and the VT-specific key.
+        // Do NOT set TRANSPORT_IN — without it, Axis2's builder pipeline has
+        // nothing to parse, preventing an unwanted OM build.
+        VTInputStreamPipe responsePipe = null;
         if (response.getEntity() != null && response.getEntity().getContent() != null) {
-            msgContext.setProperty(MessageContext.TRANSPORT_IN, response.getEntity().getContent());
+            responsePipe = new VTInputStreamPipe(response.getEntity().getContent());
+            msgContext.setProperty(PassThroughConstants.PASS_THROUGH_PIPE, responsePipe);
+            msgContext.setProperty(VTConstants.VT_INPUT_STREAM_PIPE, responsePipe);
+        }
+        msgContext.setProperty(PassThroughConstants.MESSAGE_BUILDER_INVOKED, Boolean.FALSE);
+
+        // Stash the streaming response directly on the inbound server worker
+        // (carried via OUT_TRANSPORT_INFO).  This bypasses Axis2's fragile
+        // property propagation across the OperationClient boundary so
+        // submitResponse() can find the pipe even when properties don't flow.
+        Object outInfo = msgContext.getProperty(Constants.OUT_TRANSPORT_INFO);
+        if (outInfo instanceof VTBlockingServerWorker && responsePipe != null) {
+            ((VTBlockingServerWorker) outInfo).stashStreamingResponse(
+                    responsePipe,
+                    statusCode,
+                    response.getStatusLine().getReasonPhrase(),
+                    respHeaders,
+                    ctHeader != null ? ctHeader.getValue() : null,
+                    response);
         }
 
-        // Stash the response so cleanup() / caller can close it (releases the
-        // pooled connection). HTTPConstants.HTTP_METHOD is the canonical key
-        // Axis2 uses for this, and cleanup() already handles HttpRequestBase;
-        // we use a parallel key so we don't collide.
+        // Set a default empty SOAP envelope so downstream getEnvelope() calls
+        // do not trigger an OM build. Mirrors NIO ClientWorker behaviour.
+        if (msgContext.getEnvelope() == null) {
+            SOAPFactory fac = msgContext.isSOAP11()
+                    ? OMAbstractFactory.getSOAP11Factory()
+                    : OMAbstractFactory.getSOAP12Factory();
+            try {
+                msgContext.setEnvelope(fac.getDefaultEnvelope());
+            } catch (Exception e) {
+                log.warn("Failed to set default empty SOAP envelope on response context", e);
+            }
+        }
+
+        // Stash the response so the auto-closing FilterInputStream wrapper in
+        // VTBlockingServerWorker.submitResponse() can close it after HttpCore 5
+        // finishes writing (releases the pooled connection).
         msgContext.setProperty("VT_HTTP_RESPONSE", response);
+
+        if (log.isDebugEnabled()) {
+            log.debug("VTHttpSender streaming response (no OM build): status=" + statusCode
+                    + ", contentType=" + (ctHeader != null ? ctHeader.getValue() : "n/a"));
+        }
     }
 
     /**
@@ -713,16 +821,18 @@ public class VTHttpSender extends AbstractHandler implements
                 || "transfer-encoding".equals(lc);
     }
 
-    // ------------------------------------------------------------------ passthrough response path
+    // ------------------------------------------------------------------
+    // passthrough response path
 
     /**
      * Write the response back to the client via the VTBlockingServerWorker.
-     * This path is taken when there is no EPR (i.e. this is a response, not a backend call)
+     * This path is taken when there is no EPR (i.e. this is a response, not a
+     * backend call)
      * and the OUT_TRANSPORT_INFO is a VTBlockingServerWorker.
      */
     private void submitResponse(MessageContext msgContext) throws AxisFault {
-        VTBlockingServerWorker serverWorker =
-                (VTBlockingServerWorker) msgContext.getProperty(Constants.OUT_TRANSPORT_INFO);
+        VTBlockingServerWorker serverWorker = (VTBlockingServerWorker) msgContext
+                .getProperty(Constants.OUT_TRANSPORT_INFO);
         if (serverWorker == null) {
             throw new AxisFault("No VTBlockingServerWorker found to submit response");
         }
@@ -735,7 +845,8 @@ public class VTHttpSender extends AbstractHandler implements
         return targetConfiguration;
     }
 
-    // ------------------------------------------------------------------ SOAP action helpers
+    // ------------------------------------------------------------------ SOAP
+    // action helpers
 
     /**
      * @param actionString the action string to check
@@ -770,8 +881,7 @@ public class VTHttpSender extends AbstractHandler implements
     private static String findSOAPAction(MessageContext messageContext) {
         String soapActionString = null;
 
-        Parameter parameter =
-                messageContext.getTransportOut().getParameter(HTTPConstants.OMIT_SOAP_12_ACTION);
+        Parameter parameter = messageContext.getTransportOut().getParameter(HTTPConstants.OMIT_SOAP_12_ACTION);
         if (parameter != null && JavaUtils.isTrueExplicitly(parameter.getValue()) &&
                 !messageContext.isSOAP11()) {
             return "\"\"";

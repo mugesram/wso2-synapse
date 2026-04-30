@@ -210,6 +210,18 @@ public class BlockingMsgSender {
             axisOutMsgCtx.setProperty(
                     org.apache.axis2.context.MessageContext.TRANSPORT_HEADERS, transportHeaders);
         }
+        Object vtTransportActive = axisInMsgCtx.getProperty("VT_TRANSPORT_ACTIVE");
+        if (vtTransportActive != null) {
+            axisOutMsgCtx.setProperty("VT_TRANSPORT_ACTIVE", vtTransportActive);
+        }
+        // Carry the inbound VTBlockingServerWorker reference to the outbound
+        // context so VTHttpSender.populateResponseOnMessageContext() can stash
+        // the streaming response directly on the worker.  This bypasses the
+        // fragile property-propagation chain through OperationClient.
+        Object outTransportInfo = axisInMsgCtx.getProperty(Constants.OUT_TRANSPORT_INFO);
+        if (outTransportInfo != null) {
+            axisOutMsgCtx.setProperty(Constants.OUT_TRANSPORT_INFO, outTransportInfo);
+        }
 
         axisOutMsgCtx.setProperty(HTTPConstants.NON_ERROR_HTTP_STATUS_CODES,
                 axisInMsgCtx.getProperty(HTTPConstants.NON_ERROR_HTTP_STATUS_CODES));
@@ -268,6 +280,10 @@ public class BlockingMsgSender {
                         JsonUtil.cloneJsonPayload(result, ((Axis2MessageContext) synapseInMsgCtx).getAxis2MessageContext());
                     }
                 }
+                // Propagate VT transport streaming properties to the inbound
+                // axis2 context so they are available to
+                // VTBlockingServerWorker.submitResponse() in the response path.
+                propagateStreamingProperties(result, axisInMsgCtx);
                 final String statusCode =
                                           String.valueOf(result.getProperty(SynapseConstants.HTTP_SENDER_STATUSCODE))
                                                 .trim();
@@ -396,6 +412,18 @@ public class BlockingMsgSender {
             axisOutMsgCtx.setProperty(
                     org.apache.axis2.context.MessageContext.TRANSPORT_HEADERS, transportHeaders);
         }
+        Object vtTransportActive = axisInMsgCtx.getProperty("VT_TRANSPORT_ACTIVE");
+        if (vtTransportActive != null) {
+            axisOutMsgCtx.setProperty("VT_TRANSPORT_ACTIVE", vtTransportActive);
+        }
+        // Carry the inbound VTBlockingServerWorker reference to the outbound
+        // context so VTHttpSender.populateResponseOnMessageContext() can stash
+        // the streaming response directly on the worker.  This bypasses the
+        // fragile property-propagation chain through OperationClient.
+        Object outTransportInfo = axisInMsgCtx.getProperty(Constants.OUT_TRANSPORT_INFO);
+        if (outTransportInfo != null) {
+            axisOutMsgCtx.setProperty(Constants.OUT_TRANSPORT_INFO, outTransportInfo);
+        }
 
         axisOutMsgCtx.setProperty(HTTPConstants.NON_ERROR_HTTP_STATUS_CODES,
                 axisInMsgCtx.getProperty(HTTPConstants.NON_ERROR_HTTP_STATUS_CODES));
@@ -456,6 +484,8 @@ public class BlockingMsgSender {
                 if (JsonUtil.hasAJsonPayload(result)) {
                     JsonUtil.cloneJsonPayload(result, ((Axis2MessageContext) synapseInMsgCtx).getAxis2MessageContext());
                 }
+                // Propagate VT transport streaming properties
+                propagateStreamingProperties(result, axisInMsgCtx);
                 final String statusCode =
                         String.valueOf(result.getProperty(SynapseConstants.HTTP_SENDER_STATUSCODE))
                                 .trim();
@@ -597,33 +627,83 @@ public class BlockingMsgSender {
         org.apache.axis2.context.MessageContext resultMsgCtx =
                 operationClient.getMessageContext(WSDLConstants.MESSAGE_LABEL_IN_VALUE);
 
+        // Check whether the response is streaming via VT transport.
+        // For body-carrying requests (POST/PUT) the pipe is set; for GET/DELETE
+        // there is no request body so PASS_THROUGH_PIPE is absent.  We detect
+        // VT mode via VT_TRANSPORT_ACTIVE (set by VTBlockingServerWorker on
+        // every inbound request) and fall back to the pipe check for safety.
+        Object pipeObj = axisOutMsgCtx.getProperty(PassThroughConstants.PASS_THROUGH_PIPE);
+        boolean vtMode = Boolean.TRUE.equals(axisOutMsgCtx.getProperty("VT_TRANSPORT_ACTIVE"))
+                || (pipeObj != null && "VTInputStreamPipe".equals(pipeObj.getClass().getSimpleName()));
+        boolean streaming = vtMode
+                && !Boolean.TRUE.equals(
+                        axisOutMsgCtx.getProperty(PassThroughConstants.MESSAGE_BUILDER_INVOKED));
+
         org.apache.axis2.context.MessageContext returnMsgCtx =
                 new org.apache.axis2.context.MessageContext();
-        if (resultMsgCtx.getEnvelope() != null) {
-            returnMsgCtx.setEnvelope(MessageHelper.cloneSOAPEnvelope(resultMsgCtx.getEnvelope()));
-            if (JsonUtil.hasAJsonPayload(resultMsgCtx)) {
-               JsonUtil.cloneJsonPayload(resultMsgCtx, returnMsgCtx);
-            }
-        } else {
+
+        if (streaming) {
+            // Streaming path: skip OM clone/serialize. The raw response body
+            // stays in the VTInputStreamPipe and flows directly to the client.
             if (axisOutMsgCtx.isSOAP11()) {
                 returnMsgCtx.setEnvelope(OMAbstractFactory.getSOAP11Factory().getDefaultEnvelope());
             } else {
                 returnMsgCtx.setEnvelope(OMAbstractFactory.getSOAP12Factory().getDefaultEnvelope());
             }
+            // Copy streaming-related properties from axisOutMsgCtx
+            returnMsgCtx.setProperty(PassThroughConstants.PASS_THROUGH_PIPE, pipeObj);
+            returnMsgCtx.setProperty(PassThroughConstants.MESSAGE_BUILDER_INVOKED, Boolean.FALSE);
+            returnMsgCtx.setProperty(Constants.Configuration.CONTENT_TYPE,
+                    axisOutMsgCtx.getProperty(Constants.Configuration.CONTENT_TYPE));
+            returnMsgCtx.setProperty(PassThroughConstants.HTTP_SC,
+                    axisOutMsgCtx.getProperty(PassThroughConstants.HTTP_SC));
+            returnMsgCtx.setProperty(PassThroughConstants.HTTP_SC_DESC,
+                    axisOutMsgCtx.getProperty(PassThroughConstants.HTTP_SC_DESC));
+            returnMsgCtx.setProperty("VT_HTTP_RESPONSE",
+                    axisOutMsgCtx.getProperty("VT_HTTP_RESPONSE"));
+            returnMsgCtx.setProperty("VT_INPUT_STREAM_PIPE",
+                    axisOutMsgCtx.getProperty("VT_INPUT_STREAM_PIPE"));
+            returnMsgCtx.setProperty(SynapseConstants.HTTP_SENDER_STATUSCODE,
+                    axisOutMsgCtx.getProperty(SynapseConstants.HTTP_SENDER_STATUSCODE));
+            returnMsgCtx.setProperty(
+                    org.apache.axis2.context.MessageContext.TRANSPORT_HEADERS,
+                    axisOutMsgCtx.getProperty(
+                            org.apache.axis2.context.MessageContext.TRANSPORT_HEADERS));
+            // Do NOT call cleanup() — that would risk closing the pooled response
+            // before the client has read it. Cleanup happens when the response
+            // entity is written and the auto-closing stream wrapper fires.
+            if (log.isDebugEnabled()) {
+                log.debug("BlockingMsgSender: response is streaming (VTInputStreamPipe), " +
+                        "skipping OM clone/serialize");
+            }
+        } else {
+            // OM-tree path: existing behaviour
+            if (resultMsgCtx.getEnvelope() != null) {
+                returnMsgCtx.setEnvelope(MessageHelper.cloneSOAPEnvelope(resultMsgCtx.getEnvelope()));
+                if (JsonUtil.hasAJsonPayload(resultMsgCtx)) {
+                   JsonUtil.cloneJsonPayload(resultMsgCtx, returnMsgCtx);
+                }
+            } else {
+                if (axisOutMsgCtx.isSOAP11()) {
+                    returnMsgCtx.setEnvelope(OMAbstractFactory.getSOAP11Factory().getDefaultEnvelope());
+                } else {
+                    returnMsgCtx.setEnvelope(OMAbstractFactory.getSOAP12Factory().getDefaultEnvelope());
+                }
+            }
+            try {
+                // Message need to be serialized since if not the stream given in data handler can be closed prior to
+                // writing the response
+                MediatorPropertyUtils.serializeOMElement(resultMsgCtx);
+            } catch (Exception e) {
+                handleException("Error while serializing the  message", e);
+            }
+            returnMsgCtx.setProperty(SynapseConstants.HTTP_SENDER_STATUSCODE,
+                                     resultMsgCtx.getProperty(SynapseConstants.HTTP_SENDER_STATUSCODE));
+            axisOutMsgCtx.getTransportOut().getSender().cleanup(axisOutMsgCtx);
+            returnMsgCtx.setProperty(
+                    org.apache.axis2.context.MessageContext.TRANSPORT_HEADERS,
+                    resultMsgCtx.getProperty(org.apache.axis2.context.MessageContext.TRANSPORT_HEADERS));
         }
-        try {
-            // Message need to be serialized since if not the stream given in data handler can be closed prior to
-            // writing the response
-            MediatorPropertyUtils.serializeOMElement(resultMsgCtx);
-        } catch (Exception e) {
-            handleException("Error while serializing the  message", e);
-        }
-        returnMsgCtx.setProperty(SynapseConstants.HTTP_SENDER_STATUSCODE,
-                                 resultMsgCtx.getProperty(SynapseConstants.HTTP_SENDER_STATUSCODE));
-        axisOutMsgCtx.getTransportOut().getSender().cleanup(axisOutMsgCtx);
-        returnMsgCtx.setProperty(
-                org.apache.axis2.context.MessageContext.TRANSPORT_HEADERS,
-                resultMsgCtx.getProperty(org.apache.axis2.context.MessageContext.TRANSPORT_HEADERS));
         return returnMsgCtx;
     }
 
@@ -713,5 +793,37 @@ public class BlockingMsgSender {
         final PrintWriter printWriter = new PrintWriter(result);
         aThrowable.printStackTrace(printWriter);
         return result.toString();
+    }
+
+    /**
+     * Copy VT response streaming properties from the result message context
+     * to the inbound axis2 message context, so they are available when
+     * {@code VTBlockingServerWorker.submitResponse()} runs in the response
+     * path via {@code Axis2Sender.sendBack()} → {@code VTHttpSender.invoke()}.
+     */
+    private static void propagateStreamingProperties(
+            org.apache.axis2.context.MessageContext from,
+            org.apache.axis2.context.MessageContext to) {
+        String[] keys = {
+            PassThroughConstants.PASS_THROUGH_PIPE,
+            PassThroughConstants.MESSAGE_BUILDER_INVOKED,
+            "VT_INPUT_STREAM_PIPE",
+            "VT_HTTP_RESPONSE",
+            PassThroughConstants.HTTP_SC,
+            PassThroughConstants.HTTP_SC_DESC,
+            org.apache.axis2.context.MessageContext.TRANSPORT_HEADERS,
+            "VT_TRANSPORT_ACTIVE",
+        };
+        for (String key : keys) {
+            Object val = from.getProperty(key);
+            if (val != null) {
+                to.setProperty(key, val);
+            }
+        }
+        // Also propagate Content-Type (response content type)
+        Object ct = from.getProperty(Constants.Configuration.CONTENT_TYPE);
+        if (ct != null) {
+            to.setProperty(Constants.Configuration.CONTENT_TYPE, ct);
+        }
     }
 }

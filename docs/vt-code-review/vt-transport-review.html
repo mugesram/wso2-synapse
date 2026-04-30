@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VT Transport — Code Review Document</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.45;
+    color: #1f2328;
+    margin: 0;
+  }
+  h1 { font-size: 22pt; color: #0b5394; border-bottom: 2px solid #0b5394; padding-bottom: 4px; margin-top: 14pt; }
+  h2 { font-size: 16pt; color: #0b5394; border-bottom: 1px solid #cbd5e0; padding-bottom: 3px; margin-top: 22pt; page-break-before: always; }
+  h2.no-break { page-break-before: avoid; }
+  h3 { font-size: 13pt; color: #154360; margin-top: 16pt; border-left: 4px solid #0b5394; padding-left: 8px; }
+  h4 { font-size: 11.5pt; color: #0b5394; margin-top: 10pt; margin-bottom: 4pt; }
+  p { margin: 4pt 0; text-align: justify; }
+  ul, ol { margin: 4pt 0 6pt 18pt; padding-left: 4pt; }
+  li { margin-bottom: 2pt; }
+  code {
+    font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+    background: #f3f4f6;
+    color: #8b3a2a;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 9.3pt;
+  }
+  pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 10px 12px;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 8.5pt;
+    line-height: 1.4;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    page-break-inside: avoid;
+  }
+  pre code { background: transparent; color: inherit; padding: 0; font-size: inherit; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9.5pt;
+    margin: 8pt 0;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid #cbd5e0;
+    padding: 5px 7px;
+    vertical-align: top;
+    text-align: left;
+  }
+  th {
+    background: #0b5394;
+    color: #fff;
+    font-weight: 600;
+  }
+  tr:nth-child(even) td { background: #f6f8fa; }
+  .cover {
+    text-align: center;
+    padding-top: 90pt;
+    page-break-after: always;
+  }
+  .cover h1 {
+    font-size: 30pt;
+    border: none;
+    color: #0b5394;
+    margin-bottom: 0;
+  }
+  .cover .sub { font-size: 14pt; color: #52616b; margin-top: 6pt; }
+  .cover .meta { margin-top: 50pt; font-size: 11pt; color: #333; }
+  .cover .box {
+    display: inline-block;
+    border: 2px solid #0b5394;
+    padding: 14pt 30pt;
+    border-radius: 6px;
+    margin-top: 40pt;
+  }
+  .toc { page-break-after: always; }
+  .toc ol { font-size: 11pt; }
+  .callout {
+    background: #fff8e1;
+    border-left: 4px solid #f5a623;
+    padding: 8px 12px;
+    margin: 8pt 0;
+    border-radius: 3px;
+    font-size: 10pt;
+  }
+  .callout.info {
+    background: #e3f2fd;
+    border-left-color: #1976d2;
+  }
+  .callout.good {
+    background: #e8f5e9;
+    border-left-color: #2e7d32;
+  }
+  .pill {
+    display: inline-block;
+    background: #0b5394;
+    color: #fff;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+  .pill.added { background: #2e7d32; }
+  .pill.removed { background: #c62828; }
+  .pill.changed { background: #e65100; }
+  .pill.reused { background: #6a1b9a; }
+  .kv { display: grid; grid-template-columns: 140px 1fr; gap: 2px 10px; margin: 4pt 0 8pt; font-size: 9.8pt; }
+  .kv .k { font-weight: 600; color: #334155; }
+  .mono { font-family: "JetBrains Mono", Menlo, Consolas, monospace; font-size: 9.3pt; }
+  .diff-add { color: #2e7d32; }
+  .diff-rem { color: #c62828; text-decoration: line-through; }
+  hr { border: none; border-top: 1px solid #cbd5e0; margin: 14pt 0; }
+  .small { font-size: 9pt; color: #52616b; }
+</style>
+</head>
+<body>
+
+<!-- ================= COVER ================= -->
+<section class="cover">
+  <h1>Virtual Thread (VT) Transport</h1>
+  <div class="sub">Code Review Documentation</div>
+  <div class="sub" style="font-size:11pt;margin-top:20pt;">
+    Line-by-line comparison against the existing NIO PassThrough transport
+  </div>
+  <div class="box">
+    WSO2 Synapse &nbsp;|&nbsp; Branch <code>VTPassTV2</code><br>
+    <span class="small">modules/transports/core/nhttp/.../passthru/vt/</span>
+  </div>
+  <div class="meta">
+    Prepared for code review<br>
+    Date: 22 April 2026
+  </div>
+</section>
+
+<!-- ================= TOC ================= -->
+<section class="toc">
+  <h1 class="no-break">Table of Contents</h1>
+  <ol>
+    <li>Executive Summary &amp; Goals</li>
+    <li>High-Level Architecture Shift (NIO → VT)</li>
+    <li>Classes Under <code>vt/</code> — Summary Matrix</li>
+    <li><code>VTPassThroughHttpListener</code> vs <code>PassThroughHttpListener</code></li>
+    <li><code>VTHttpSender</code> vs <code>PassThroughHttpSender</code></li>
+    <li><code>VTBlockingServerWorker</code> vs <code>ServerWorker</code></li>
+    <li><code>VTInputStreamPipe</code> vs <code>Pipe</code></li>
+    <li><code>VirtualThreadWorkerPool</code> (new adapter)</li>
+    <li><code>VTConstants</code> vs <code>PassThroughConstants</code></li>
+    <li>Reused Existing Utilities (Cross-Cutting)</li>
+    <li>Deployment Notes &amp; Risks</li>
+  </ol>
+</section>
+
+<!-- ================= 1 EXEC SUMMARY ================= -->
+<h1 class="no-break">1. Executive Summary</h1>
+
+<p>
+The Virtual Thread (VT) transport is a fully blocking, Project-Loom–based replacement for
+the NIO PassThrough transport's request/response plumbing. The goal is to keep a
+<i>blocking, easy-to-reason</i> programming model per request while retaining the
+scalability of asynchronous I/O — by running each HTTP request on a lightweight Java 21
+virtual thread instead of a shared platform-thread pool driven by an NIO reactor.
+</p>
+
+<div class="callout info">
+<b>Why it exists.</b>
+The existing NIO transport uses <code>DefaultListeningIOReactor</code>, asynchronous
+<code>ContentDecoder</code>/<code>ContentEncoder</code> callbacks, and a
+<code>Pipe</code> backed by a <code>ControlledByteBuffer</code>. This model is
+fast but complex: back-pressure, keep-alive, and chunked decoding all live in
+callbacks. VT lets us express the same flow as straight-line code
+(<code>socket.read()</code> → <code>engine.receive()</code> → <code>response.write()</code>)
+on a VT that parks instead of pinning a platform thread.
+</div>
+
+<h4>Design constraints that shaped the implementation</h4>
+<ul>
+  <li><b>Reuse Synapse/Axis2 contracts.</b> Listener still implements
+      <code>TransportListener</code>; sender still implements <code>TransportSender</code>;
+      worker still implements <code>OutTransportInfo</code>. Nothing above the transport
+      layer changes.</li>
+  <li><b>Reuse <code>SourceConfiguration</code> and <code>TargetConfiguration</code>.</b>
+      These are full Axis2 lifecycle objects — recreating them would mean
+      rebuilding JMX, metrics, WorkerPool wiring, and EPR-prefix logic.</li>
+  <li><b>Delegate HTTP protocol handling to HttpCore 5 blocking API.</b>
+      Parsing request lines, chunked decoding, keep-alive, and response
+      serialization are too tricky to reimplement. <code>HttpService</code> does
+      this and exposes <code>ClassicHttpRequest</code>/<code>ClassicHttpResponse</code>.</li>
+  <li><b>Replace HttpCore 4 NIO sender with HttpClient 4.5.x blocking client.</b>
+      The outbound path needs a blocking client that plays nicely with a VT —
+      <code>CloseableHttpClient</code> with <code>PoolingHttpClientConnectionManager</code>
+      satisfies this and exposes <code>InputStreamEntity</code> for zero-copy body
+      streaming.</li>
+  <li><b>Zero-copy streaming path.</b> When no content-aware mediator runs before
+      <code>&lt;call/&gt;</code>, the raw client socket <code>InputStream</code> is piped
+      directly to the backend via <code>InputStreamEntity</code>, avoiding AXIOM
+      build. This mirrors NIO passthrough behaviour.</li>
+</ul>
+
+<!-- ================= 2 ARCHITECTURE ================= -->
+<h1>2. High-Level Architecture Shift</h1>
+
+<h3>2.1 Request path (inbound)</h3>
+<table>
+<tr><th>Stage</th><th>NIO PassThrough</th><th>VT Transport</th></tr>
+<tr>
+  <td>Accept</td>
+  <td><code>DefaultListeningIOReactor</code> + <code>ServerConnFactory</code></td>
+  <td>Blocking <code>ServerSocket</code> on one platform thread</td>
+</tr>
+<tr>
+  <td>Dispatch</td>
+  <td><code>ServerIODispatch</code> → <code>SourceHandler</code> callbacks</td>
+  <td><code>vtExecutor.submit(...)</code> → one Virtual Thread per connection</td>
+</tr>
+<tr>
+  <td>HTTP parsing</td>
+  <td>Custom: <code>SourceRequest</code>, <code>SourceHandler</code>, <code>ProtocolState</code></td>
+  <td>HttpCore 5 <code>HttpService.handleRequest()</code></td>
+</tr>
+<tr>
+  <td>Worker invocation</td>
+  <td><code>ServerWorker</code> posted to <code>WorkerPool</code></td>
+  <td><code>VTBlockingServerWorker.process()</code> called synchronously from same VT</td>
+</tr>
+<tr>
+  <td>Body transport</td>
+  <td><code>Pipe</code> (NIO <code>ControlledByteBuffer</code>, producer/consumer)</td>
+  <td><code>VTInputStreamPipe</code> (wraps socket <code>InputStream</code>)</td>
+</tr>
+<tr>
+  <td>Engine dispatch</td>
+  <td><code>AxisEngine.receive()</code></td>
+  <td><code>AxisEngine.receive()</code> — unchanged</td>
+</tr>
+</table>
+
+<h3>2.2 Response path (outbound back to client)</h3>
+<table>
+<tr><th>Stage</th><th>NIO PassThrough</th><th>VT Transport</th></tr>
+<tr>
+  <td>Entry</td>
+  <td><code>PassThroughHttpSender.invoke()</code> → <code>submitResponse()</code></td>
+  <td><code>VTHttpSender.invoke()</code> → <code>submitResponse()</code></td>
+</tr>
+<tr>
+  <td>Response object</td>
+  <td><code>SourceResponse</code> / <code>SourceResponseFactory</code></td>
+  <td><code>ClassicHttpResponse</code> populated directly by worker</td>
+</tr>
+<tr>
+  <td>Wire write</td>
+  <td>NIO <code>ContentEncoder</code> callbacks</td>
+  <td>HttpCore 5 writes response when handler returns (on same VT)</td>
+</tr>
+</table>
+
+<h3>2.3 Backend call path (CallMediator blocking)</h3>
+<table>
+<tr><th>Stage</th><th>NIO PassThrough</th><th>VT Transport</th></tr>
+<tr>
+  <td>Sender</td>
+  <td>Built-in <code>http</code> / <code>https</code> transport based on <code>HTTPSender</code> (Commons HttpClient 3.x)</td>
+  <td><code>VTHttpSender</code> with HttpClient 4.5.x pooled client</td>
+</tr>
+<tr>
+  <td>Zero-copy body</td>
+  <td>Via <code>Pipe</code> only in non-blocking path</td>
+  <td>Via <code>InputStreamEntity(vtPipe.getInputStream(), contentType)</code></td>
+</tr>
+<tr>
+  <td>Pool</td>
+  <td><code>MultiThreadedHttpConnectionManager</code> (deprecated)</td>
+  <td><code>PoolingHttpClientConnectionManager</code></td>
+</tr>
+<tr>
+  <td>Timeouts</td>
+  <td><code>HttpConnectionManagerParams</code></td>
+  <td><code>RequestConfig</code></td>
+</tr>
+</table>
+
+<!-- ================= 3 SUMMARY MATRIX ================= -->
+<h1>3. Classes Under <code>vt/</code> — Summary Matrix</h1>
+<table>
+<tr>
+  <th>VT Class</th><th>Replaces / Counterpart</th><th>Lines</th><th>Nature of Change</th>
+</tr>
+<tr>
+  <td><code>VTPassThroughHttpListener</code></td>
+  <td><code>PassThroughHttpListener</code> (716 LOC)</td>
+  <td>472</td>
+  <td>Rewrite — swap NIO reactor for ServerSocket + VT executor + HttpCore 5</td>
+</tr>
+<tr>
+  <td><code>VTHttpSender</code></td>
+  <td><code>PassThroughHttpSender</code> (786 LOC)</td>
+  <td>826</td>
+  <td>Unified sender — HttpClient 4.5.x, zero-copy streaming, passthrough response merged</td>
+</tr>
+<tr>
+  <td><code>VTBlockingServerWorker</code></td>
+  <td><code>ServerWorker</code> (848 LOC)</td>
+  <td>785</td>
+  <td>Rewrite — driven by HttpCore 5 request handler, <code>OutTransportInfo</code></td>
+</tr>
+<tr>
+  <td><code>VTInputStreamPipe</code></td>
+  <td><code>Pipe</code> (756 LOC)</td>
+  <td>50</td>
+  <td>Replacement — VT blocks, so we only need a wrapper around <code>InputStream</code></td>
+</tr>
+<tr>
+  <td><code>VirtualThreadWorkerPool</code></td>
+  <td>(new adapter)</td>
+  <td>77</td>
+  <td>Axis2 <code>WorkerPool</code> impl backed by <code>Executors.newThreadPerTaskExecutor</code></td>
+</tr>
+<tr>
+  <td><code>VTConstants</code></td>
+  <td><code>PassThroughConstants</code> (314 LOC, still reused)</td>
+  <td>120</td>
+  <td>Small additive — VT-only property keys, socket params, HTTP context attrs</td>
+</tr>
+</table>
+
+<!-- ================= 4 LISTENER ================= -->
+<h1>4. <code>VTPassThroughHttpListener</code> vs <code>PassThroughHttpListener</code></h1>
+
+<div class="kv">
+  <div class="k">File</div><div class="mono">modules/transports/core/nhttp/src/main/java/org/apache/synapse/transport/passthru/vt/VTPassThroughHttpListener.java</div>
+  <div class="k">Implements</div><div><code>org.apache.axis2.transport.TransportListener</code> — unchanged contract</div>
+  <div class="k">Axis2 role</div><div>Accepts inbound HTTP connections and dispatches each request into the Axis2/Synapse mediation engine</div>
+</div>
+
+<h3>4.1 Import changes</h3>
+<table>
+<tr><th>Import</th><th>PassThrough (NIO)</th><th>VT</th><th>Why changed</th></tr>
+<tr>
+  <td>IO reactor</td>
+  <td><code>DefaultListeningIOReactor</code>, <code>IOReactorException</code>, <code>IOReactorExceptionHandler</code></td>
+  <td>— removed —</td>
+  <td>No reactor in VT; accept loop is a plain <code>while (running.get())</code> on a platform thread</td>
+</tr>
+<tr>
+  <td>Sockets</td>
+  <td>(none — reactor owns socket channels)</td>
+  <td><code>java.net.ServerSocket</code>, <code>Socket</code>, <code>ServerSocketFactory</code>,
+      <code>InetSocketAddress</code></td>
+  <td>VT uses classic blocking BSD sockets; each accepted <code>Socket</code> is handed to a VT</td>
+</tr>
+<tr>
+  <td>HTTP protocol</td>
+  <td><code>HttpConnectionParams</code> from <code>org.apache.http.params</code></td>
+  <td><code>org.apache.hc.core5.http.impl.io.HttpService</code>,
+      <code>DefaultBHttpServerConnection</code>,
+      <code>ClassicHttpRequest/Response</code>,
+      <code>HttpProcessors</code>,
+      <code>BasicHttpServerRequestHandler</code>,
+      <code>Http1Config</code></td>
+  <td>HttpCore 5 blocking API replaces the HttpCore 4 NIO pipeline.
+      <code>HttpService.handleRequest()</code> handles parsing, chunked decoding,
+      keep-alive and response serialization — none of which we need to write.</td>
+</tr>
+<tr>
+  <td>Executor</td>
+  <td><code>NativeThreadFactory</code> (fixed-size platform pool via Axis2 <code>WorkerPool</code>)</td>
+  <td><code>java.util.concurrent.ExecutorService</code>, <code>Executors</code>,
+      <code>AtomicBoolean</code></td>
+  <td>Pool is now <code>Executors.newThreadPerTaskExecutor(Thread.ofVirtual()...factory())</code>. Each accepted connection gets a fresh VT.</td>
+</tr>
+<tr>
+  <td>Conn factory / interceptors</td>
+  <td><code>ServerConnFactory</code>, <code>ServerConnFactoryBuilder</code>,
+      <code>StreamInterceptorsLoader</code></td>
+  <td>— removed —</td>
+  <td>HttpCore 5 does connection construction internally via <code>DefaultBHttpServerConnection</code>.
+      Stream interceptors (diagnostic wire-logging) can be added later as HttpCore 5 interceptors —
+      not in scope for the first cut.</td>
+</tr>
+<tr>
+  <td>JMX</td>
+  <td><code>MBeanRegistrar</code>, <code>TransportView</code>, <code>ManagementSupport</code>,
+      <code>TransportMBeanSupport</code></td>
+  <td>— removed —</td>
+  <td>Kept out of the first cut. Metrics collector still instantiated so
+      <code>SourceConfiguration</code> remains well-formed, but MBean registration is
+      deferred until the VT path stabilises.</td>
+</tr>
+<tr>
+  <td>Active-conn monitor</td>
+  <td><code>ActiveConnectionMonitor</code>,
+      <code>ScheduledExecutorService</code></td>
+  <td>— removed —</td>
+  <td>NIO needed it to pause the reactor when <code>maxActiveConnections</code>
+      was exceeded. Under VT each connection has its own lightweight thread, so
+      pausing-to-throttle is irrelevant; rate limiting can be expressed as a
+      <code>Semaphore</code> later if needed.</td>
+</tr>
+<tr>
+  <td>Service tracker</td>
+  <td><code>AxisServiceTracker</code>, <code>AxisServiceFilter</code>,
+      <code>AxisServiceTrackerListener</code></td>
+  <td><span class="pill reused">reused</span> same classes</td>
+  <td>Lifecycle-driven EPR map updates are transport-agnostic, so we keep the tracker as-is.</td>
+</tr>
+</table>
+
+<h3>4.2 New / removed fields</h3>
+<h4><span class="pill added">added</span> VT-specific fields</h4>
+<pre><code>private ServerSocket serverSocket;                    // blocking accept
+private ExecutorService vtExecutor;                   // per-task VT executor
+private final AtomicBoolean running = new AtomicBoolean(false);  // stop flag
+private Thread acceptThread;                          // single platform thread running acceptLoop()
+private HttpService httpService;                      // HttpCore 5 blocking service
+private int soTimeout  = VTConstants.DEFAULT_SO_TIMEOUT;
+private int backlog    = VTConstants.DEFAULT_BACKLOG;
+private boolean tcpNoDelay = VTConstants.DEFAULT_TCP_NODELAY;</code></pre>
+
+<h4><span class="pill removed">removed</span> NIO fields</h4>
+<pre><code>private DefaultListeningIOReactor ioReactor;
+private PassThroughListeningIOReactorManager passThroughListeningIOReactorManager;
+private SourceHandler handler;
+private ServerConnFactory connFactory;
+private List&lt;StreamInterceptor&gt; interceptors;
+private final ScheduledExecutorService activeConnectionMonitorScheduler;</code></pre>
+
+<h4><span class="pill reused">reused</span> identical fields</h4>
+<pre><code>private SourceConfiguration sourceConfiguration;   // same type, same role
+private Scheme scheme;
+private String namePrefix;
+private int operatingPort;
+private ConfigurationContext configurationContext;
+private TransportInDescription transportInDescription;
+private Map&lt;String, String&gt; serviceNameToEPRMap = new HashMap&lt;&gt;();
+private Map&lt;String, String&gt; eprToServiceNameMap = new HashMap&lt;&gt;();
+private AxisServiceTracker serviceTracker;
+private volatile int state = BaseConstants.STOPPED;</code></pre>
+
+<h3>4.3 Function-level comparison</h3>
+
+<h4><code>init(ConfigurationContext, TransportInDescription)</code> — significantly simplified</h4>
+<table>
+<tr><th>Step</th><th>PassThrough</th><th>VT</th></tr>
+<tr>
+  <td>Port resolution (offset)</td>
+  <td><span class="pill reused">kept</span> Same 4-line pattern: read <code>port</code> param, add <code>portOffset</code> sysprop, set back into param</td>
+  <td><span class="pill reused">kept identical</span> — parameter key moved into <code>VTConstants.PARAM_PORT</code></td>
+</tr>
+<tr>
+  <td>Sysprop advertisement</td>
+  <td><code>{name}.nio.port</code></td>
+  <td><code>{name}.VT.port</code> — so existing NIO-assuming consumers don't collide</td>
+</tr>
+<tr>
+  <td>WorkerPool</td>
+  <td>Reuses <code>PASS_THROUGH_TRANSPORT_WORKER_POOL</code> if present, else creates <code>NativeWorkerPool</code></td>
+  <td>Reuses the same context key if present; else creates <code>new VirtualThreadWorkerPool(vtExecutor)</code></td>
+</tr>
+<tr>
+  <td>Metrics</td>
+  <td><code>new PassThroughTransportMetricsCollector(true, scheme.getName())</code></td>
+  <td>Same — <span class="pill reused">reused</span></td>
+</tr>
+<tr>
+  <td>SourceConfiguration build</td>
+  <td><code>new SourceConfiguration(cfgCtx, transportIn, scheme, workerPool, metrics); build();</code></td>
+  <td>Identical — <span class="pill reused">reused</span> as-is. Keeps JMX, EPR-prefix, transport-param parsing working.</td>
+</tr>
+<tr>
+  <td>Connection factory</td>
+  <td><code>initConnFactoryBuilder(...).build(...)</code></td>
+  <td><span class="pill removed">removed</span> — HttpCore 5 builds its own <code>DefaultBHttpServerConnection</code> per socket</td>
+</tr>
+<tr>
+  <td>IOReactor init</td>
+  <td><code>passThroughListeningIOReactorManager.initIOReactor(...)</code> wrapped in <code>try/catch IOReactorException</code></td>
+  <td><span class="pill removed">removed</span></td>
+</tr>
+<tr>
+  <td>HttpService build</td>
+  <td>—</td>
+  <td><span class="pill added">added</span> —
+    <code>HttpService(HttpProcessors.server(), new BasicHttpServerRequestHandler(mapper))</code>.
+    The mapper is a lambda returning a <code>HttpRequestHandler</code> that constructs
+    a <code>VTBlockingServerWorker</code> for every request.</td>
+</tr>
+<tr>
+  <td>EPR map bootstrap</td>
+  <td>Same HashMap init + <code>EPR_TO_SERVICE_NAME_MAP</code> context property</td>
+  <td>Identical logic — <span class="pill reused">reused</span></td>
+</tr>
+<tr>
+  <td>MBean registration</td>
+  <td><code>MBeanRegistrar.getInstance().registerMBean(view, "Transport", ...)</code></td>
+  <td><span class="pill removed">removed</span> — deferred (see §4.1)</td>
+</tr>
+<tr>
+  <td>Service tracker</td>
+  <td>Same construction with filter + listener</td>
+  <td><span class="pill reused">identical</span></td>
+</tr>
+</table>
+
+<h4><code>start()</code> — accept loop replaces reactor start</h4>
+<p>PassThrough calls <code>ioReactor.setExceptionHandler(...)</code>, then
+<code>startPTTEndpoint(address, ioReactor, namePrefix)</code> for each bind address — this schedules
+the reactor on its own thread. VT instead:</p>
+<pre><code>serverSocket = createServerSocket(bindAddress);
+running.set(true);
+state = BaseConstants.STARTED;
+acceptThread = new Thread(this::acceptLoop, VTConstants.VT_THREAD_PREFIX + namePrefix + "-accept");
+acceptThread.setDaemon(true);
+acceptThread.start();</code></pre>
+<p>The accept thread is a <i>single</i> platform thread; handing off the accepted socket to a VT means it
+never blocks doing real work.</p>
+
+<h4><span class="pill added">new</span> <code>acceptLoop()</code></h4>
+<pre><code>while (running.get()) {
+    Socket clientSocket = serverSocket.accept();
+    clientSocket.setSoTimeout(soTimeout);
+    clientSocket.setTcpNoDelay(tcpNoDelay);
+    vtExecutor.submit(() -&gt; handleConnection(clientSocket));
+}</code></pre>
+<p><b>Why:</b> this is the simplest possible accept pattern — the entire NIO reactor is
+replaced by one <code>accept()</code> + one VT dispatch. The <code>IOException</code>
+check after accept distinguishes normal shutdown (caused by <code>serverSocket.close()</code>
+in <code>stop()</code>) from actual errors.</p>
+
+<h4><span class="pill added">new</span> <code>handleConnection(Socket)</code></h4>
+<pre><code>Http1Config h1Config = Http1Config.custom().setBufferSize(VTConstants.STREAM_BUFFER_SIZE).build();
+conn = new DefaultBHttpServerConnection(scheme.getName(), h1Config);
+conn.bind(clientSocket);
+BasicHttpContext context = new BasicHttpContext();
+context.setAttribute(VTConstants.CTX_REMOTE_ADDRESS, clientSocket.getRemoteSocketAddress());
+context.setAttribute(VTConstants.CTX_LOCAL_ADDRESS,  clientSocket.getLocalSocketAddress());
+context.setAttribute(VTConstants.CTX_LOCAL_PORT,     clientSocket.getLocalPort());
+while (conn.isOpen()) {
+    httpService.handleRequest(conn, context);
+}</code></pre>
+<p><b>Why the loop:</b> HTTP keep-alive. <code>handleRequest()</code> processes
+exactly one request/response cycle and returns. HttpCore 5 keeps the connection
+open based on <code>Connection:</code> / HTTP/1.1 semantics; we simply keep
+calling until the socket is dead. The remote / local address is stashed in
+<code>HttpContext</code> so the worker can retrieve it without holding a socket reference.</p>
+
+<h4><span class="pill changed">changed</span> <code>stop()</code></h4>
+<p>PassThrough shuts down the reactor and endpoints via <code>PassThroughListeningIOReactorManager</code>.
+VT instead:</p>
+<ul>
+  <li>Flip <code>running.set(false)</code></li>
+  <li><code>serverSocket.close()</code> — unblocks the accept loop</li>
+  <li><code>vtExecutor.shutdown()</code> — existing VTs drain naturally</li>
+  <li><code>acceptThread.join(5000)</code> — bounded wait</li>
+  <li><code>serviceTracker.stop()</code> — same as before</li>
+</ul>
+
+<h4><span class="pill reused">identical</span> <code>getEPRForService()</code>, <code>getEPRsForService()</code>, <code>getSessionContext()</code></h4>
+<p>Copy-for-copy from the PassThrough listener — these are transport-agnostic.</p>
+
+<h4><span class="pill reused">identical</span> <code>addToServiceURIMap()</code>, <code>removeServiceFromURIMap()</code></h4>
+<p>Same logic as PassThrough's private helpers
+(<code>removeServiceFfromURIMap</code> &lt;typo in original&gt; corrected to <code>removeServiceFromURIMap</code>).</p>
+
+<h3>4.4 Functions removed from PassThrough counterpart (and why)</h3>
+<table>
+<tr><th>Function</th><th>Why not needed under VT</th></tr>
+<tr>
+  <td><code>startEndpoints()</code>,
+      <code>startSpecificEndpoints(Set&lt;InetSocketAddress&gt;)</code></td>
+  <td>They iterate bind addresses and call
+      <code>passThroughListeningIOReactorManager.startPTTEndpoint(...)</code> —
+      reactor-only concept.</td>
+</tr>
+<tr>
+  <td><code>addMaxActiveConnectionCountController(int)</code></td>
+  <td>Pauses the reactor on threshold; VT has no reactor to pause.</td>
+</tr>
+<tr>
+  <td><code>isVersionedBasedService</code>, <code>isServiceWithCustomURI</code>,
+      plus the long version-aware branch inside <code>getEPRsForService()</code></td>
+  <td>Defer to existing PassThrough listener for versioned services; the VT
+      transport targets the plain-EPR case for the prototype.</td>
+</tr>
+<tr>
+  <td><code>reloadSSLConfig()</code>, <code>reloadDynamicEndpoints()</code></td>
+  <td>SSL hot-reload and dynamic inbound endpoints require the reactor manager
+      infrastructure; not in first-cut scope.</td>
+</tr>
+<tr>
+  <td>Correlation-log plumbing (<code>CorrelationConstants</code>)</td>
+  <td>Not wired into the VT path yet — can be reintroduced inside
+      <code>handleConnection</code> when required.</td>
+</tr>
+</table>
+
+<!-- ================= 5 SENDER ================= -->
+<h1>5. <code>VTHttpSender</code> vs <code>PassThroughHttpSender</code></h1>
+
+<div class="kv">
+  <div class="k">File</div><div class="mono">modules/transports/core/nhttp/src/main/java/org/apache/synapse/transport/passthru/vt/VTHttpSender.java</div>
+  <div class="k">Extends / impl</div><div><code>AbstractHandler</code>, <code>TransportSender</code> — same as PassThrough</div>
+  <div class="k">Registered in</div><div><code>axis2.xml</code> <i>and</i> <code>axis2_blocking_client.xml</code> — one class serves both outbound paths</div>
+</div>
+
+<div class="callout">
+<b>Important:</b> <code>VTHttpSender</code> is the <i>merged</i> class that replaces the
+original <code>VTPassThroughHttpSender</code> (deleted in earlier commit).
+It handles three separate cases in a single file:
+<ol>
+  <li>Backend calls (<code>CallMediator</code> blocking path) — fallback via <code>HTTPSender.send()</code></li>
+  <li>Backend calls — <b>streaming fast path</b> via HttpClient 4.5.x <code>InputStreamEntity</code></li>
+  <li>Passthrough response back to client — via <code>VTBlockingServerWorker.submitResponse()</code></li>
+</ol>
+</div>
+
+<h3>5.1 Import changes</h3>
+<table>
+<tr><th>Area</th><th>PassThroughHttpSender</th><th>VTHttpSender</th><th>Why</th></tr>
+<tr>
+  <td>NIO reactor / target plumbing</td>
+  <td><code>DefaultConnectingIOReactor</code>, <code>ClientConnFactory</code>,
+      <code>ClientIODispatch</code>, <code>TargetHandler</code>,
+      <code>TargetConnections</code>, <code>DeliveryAgent</code>,
+      <code>ConnectCallback</code>,
+      <code>ProxyConfig</code> + <code>ProxyConfigBuilder</code></td>
+  <td>— all removed —</td>
+  <td>VT is blocking; there's no persistent I/O loop to dispatch connections. HttpClient 4.5.x owns its own blocking socket pool.</td>
+</tr>
+<tr>
+  <td>HttpClient</td>
+  <td>(none — used NIO <code>HttpAsyncClient</code>-style path)</td>
+  <td><code>org.apache.http.impl.client.CloseableHttpClient</code>,
+      <code>HttpClients</code>, <code>HttpClientBuilder</code>,
+      <code>PoolingHttpClientConnectionManager</code>,
+      <code>RequestConfig</code>, <code>RequestBuilder</code>,
+      <code>InputStreamEntity</code>, <code>ContentType</code>,
+      <code>CloseableHttpResponse</code>, <code>Header</code>,
+      <code>HttpRequestBase</code></td>
+  <td>HttpClient 4.5.x is the synchronous, pooled, blocking client we use for the actual backend HTTP call.</td>
+</tr>
+<tr>
+  <td>Axis2 HTTP fallback</td>
+  <td>n/a</td>
+  <td><code>HTTPSender</code>, <code>AbstractHTTPSender</code>,
+      <code>ServletBasedOutTransportInfo</code>,
+      <code>AxisHttpResponseImpl</code></td>
+  <td>The OM-tree fallback path in <code>writeMessageWithCommons()</code> reuses Axis2's <code>HTTPSender</code>. The Servlet / Axis response objects are for the output-stream path.</td>
+</tr>
+<tr>
+  <td>Caching, correlation, stream interceptors, SSL hot-reload</td>
+  <td><code>CachingConstants</code>, <code>DigestGenerator</code>,
+      <code>CorrelationConstants</code>, <code>StreamInterceptorsLoader</code>,
+      <code>SynapseDebugInfoHolder</code>, <code>RelayUtils</code>,
+      <code>SourceResponseFactory</code></td>
+  <td>— removed —</td>
+  <td>All tangential to the core send path. Response is no longer built via
+      <code>SourceResponseFactory</code> — the <code>VTBlockingServerWorker</code>
+      writes the response directly on the <code>ClassicHttpResponse</code>.</td>
+</tr>
+<tr>
+  <td>Utils kept</td>
+  <td><code>AddressingHelper</code>, <code>PassThroughTransportUtils</code>,
+      <code>TransportUtils</code>, <code>HTTPConstants</code>,
+      <code>HTTPTransportUtils</code>, <code>JavaUtils</code>,
+      <code>MessageProcessorSelector</code></td>
+  <td><span class="pill reused">all reused</span></td>
+  <td>Content-type detection, MTOM/SwA flags, SOAPAction resolution, and the
+      "remove unwanted headers" policy belong to Axis2; no need to reimplement.</td>
+</tr>
+</table>
+
+<h3>5.2 New / removed fields</h3>
+<h4><span class="pill added">added</span></h4>
+<pre><code>private PoolingHttpClientConnectionManager connectionManager;  // pool for HttpClient 4.5.x
+private Scheme scheme;
+private TargetConfiguration targetConfiguration;               // reuses PassThrough's TargetConfiguration
+private volatile int state = BaseConstants.STOPPED;</code></pre>
+
+<h4><span class="pill removed">removed</span></h4>
+<pre><code>private DefaultConnectingIOReactor ioReactor;
+private TargetHandler handler;
+private ClientIODispatch ioEventDispatch;
+private ClientConnFactory connFactory;
+private DeliveryAgent deliveryAgent;
+private ProxyConfig proxyConfig;
+private TargetConnections targetConnections;
+private DigestGenerator digestGenerator;
+private List&lt;StreamInterceptor&gt; interceptors;</code></pre>
+
+<h3>5.3 Function-level comparison</h3>
+
+<h4><code>init(ConfigurationContext, TransportOutDescription)</code></h4>
+<table>
+<tr><th>Step</th><th>PassThrough</th><th>VT</th><th>Why changed</th></tr>
+<tr>
+  <td>Log banner</td>
+  <td>"Initializing Pass-through HTTP/S Sender..."</td>
+  <td>Equivalent VT banner</td>
+  <td>Cosmetic</td>
+</tr>
+<tr>
+  <td>HTTP version / chunked default</td>
+  <td>— (handled elsewhere)</td>
+  <td>Explicit parsing of <code>PROTOCOL_VERSION</code> and <code>Transfer-Encoding</code> params with fail-closed default</td>
+  <td>VTHttpSender builds its own request so it needs to know these up-front; PassThrough relied on per-request NHTTP logic</td>
+</tr>
+<tr>
+  <td>Timeouts</td>
+  <td>Stored in <code>TargetConfiguration</code>, applied by NHTTP reactor</td>
+  <td>Stored in fields <code>soTimeout</code>, <code>connectionTimeout</code>, then pushed into <code>RequestConfig</code></td>
+  <td>HttpClient 4.5.x expects timeouts on <code>RequestConfig</code>, not on connection-manager params</td>
+</tr>
+<tr>
+  <td>Pool build</td>
+  <td>Reactor + <code>TargetConnections</code></td>
+  <td><code>PoolingHttpClientConnectionManager</code> with <code>defaultMaxPerRoute</code> and <code>maxTotal</code> sourced from the same transport params (<code>DEFAULT_MAX_CONNECTIONS_PER_HOST</code>, <code>MAX_TOTAL_CONNECTIONS</code>)</td>
+  <td>HttpClient 4.5 renamed <i>per host</i> → <i>per route</i></td>
+</tr>
+<tr>
+  <td>Client cache</td>
+  <td>Not applicable (reactor-based)</td>
+  <td>When <code>CACHE_HTTP_CLIENT=true</code>, client is cached under <code>HTTPConstants.CACHED_HTTP_CLIENT</code> on the <code>ConfigurationContext</code></td>
+  <td>The streaming path and Axis2 <code>HTTPSender</code> both pull from this property — a single pooled client</td>
+</tr>
+<tr>
+  <td>TargetConfiguration</td>
+  <td>Built, stored in <code>targetConfiguration</code></td>
+  <td><span class="pill reused">identical build</span> — still needed because <code>PassThroughTransportUtils.removeUnwantedHeaders()</code> reads it</td>
+</tr>
+<tr>
+  <td>Sender-manager / JMX / interceptors</td>
+  <td><code>PassThroughSenderManager.register(...)</code>,
+      <code>MBeanRegistrar</code>, <code>StreamInterceptorsLoader</code></td>
+  <td><span class="pill removed">removed</span></td>
+  <td>First-cut scope</td>
+</tr>
+<tr>
+  <td>Reactor thread start</td>
+  <td>Spawns platform thread running <code>ioReactor.execute(...)</code></td>
+  <td><span class="pill removed">removed</span> — HttpClient has no event loop</td>
+</tr>
+</table>
+
+<h4><code>invoke(MessageContext)</code></h4>
+<p>Structurally similar to PassThrough — same overall shape of "clean headers → setup format → resolve EPR → dispatch". Differences:</p>
+<table>
+<tr><th>Concern</th><th>PassThrough</th><th>VT</th></tr>
+<tr>
+  <td>Header cleanup</td>
+  <td><code>PassThroughTransportUtils.removeUnwantedHeaders(msgContext, targetConfiguration)</code></td>
+  <td><span class="pill reused">identical</span> — guarded by null-check because
+      <code>init()</code> might be called in client-only mode with only <code>CACHE_HTTP_CLIENT</code> set</td>
+</tr>
+<tr>
+  <td>EPR resolution</td>
+  <td><code>PassThroughTransportUtils.getDestinationEPR()</code></td>
+  <td>Local logic: prefer <code>TRANSPORT_URL</code> else <code>msgContext.getTo()</code>.
+      More explicit; avoids running NHTTP-specific fallbacks.</td>
+</tr>
+<tr>
+  <td>Backend dispatch</td>
+  <td><code>sendRequestContent(msgContext, epr)</code> — schedules writes on the IOReactor</td>
+  <td><code>writeMessageWithCommons(msgContext, epr, format)</code> — blocking call. Checks <code>PASS_THROUGH_PIPE</code> / <code>MESSAGE_BUILDER_INVOKED</code> to pick streaming vs OM-tree path</td>
+</tr>
+<tr>
+  <td>Passthrough response</td>
+  <td>Instance-of check <code>OUT_TRANSPORT_INFO instanceof ServerWorker</code> → <code>submitResponse(msgContext)</code></td>
+  <td><span class="pill changed">same pattern</span> but checks <code>instanceof VTBlockingServerWorker</code> → <code>submitResponse(msgContext)</code></td>
+</tr>
+<tr>
+  <td>Servlet response fallback</td>
+  <td>Via <code>sendUsingOutputStream(msgContext)</code></td>
+  <td><code>sendUsingOutputStream(msgContext, format)</code> — same idea, but also handles <code>AxisHttpResponseImpl</code> via a new <code>addCustomHeadersToAxisResponse()</code> helper</td>
+</tr>
+<tr>
+  <td>Response-written flag</td>
+  <td><code>msgContext.getOperationContext().setProperty(RESPONSE_WRITTEN, VALUE_TRUE)</code></td>
+  <td><span class="pill reused">identical</span></td>
+</tr>
+</table>
+
+<h4><span class="pill added">new</span> <code>sendStreamedRequest(MessageContext, EndpointReference, VTInputStreamPipe)</code></h4>
+<p>The key optimisation of the VT transport: take the raw client-socket
+<code>InputStream</code> (wrapped in <code>VTInputStreamPipe</code>) and shove it
+into an <code>InputStreamEntity</code> on the HttpClient 4 request. No AXIOM tree
+is built; bytes flow client → backend without ever hitting the JVM heap as
+objects.</p>
+<pre><code>CloseableHttpClient httpClient = (CloseableHttpClient) msgContext.getConfigurationContext()
+        .getProperty(HTTPConstants.CACHED_HTTP_CLIENT);
+if (httpClient == null) throw new AxisFault("VT cached HttpClient not available ...");
+
+RequestBuilder reqBuilder = RequestBuilder.create(httpMethod).setUri(url);
+
+// Copy transport headers, skipping hop-by-hop / HttpClient-managed
+for (Map.Entry&lt;String, Object&gt; e : transportHeaders.entrySet())
+    if (!isRestrictedHeader(e.getKey()))
+        reqBuilder.addHeader(e.getKey(), e.getValue().toString());
+
+if (hasBody) {
+    ContentType ct = parseOrDefault(msgContext.getProperty(CONTENT_TYPE));
+    reqBuilder.setEntity(new InputStreamEntity(vtPipe.getInputStream(), ct));
+}
+
+response = httpClient.execute(reqBuilder.build());
+populateResponseOnMessageContext(msgContext, response);</code></pre>
+<p><b>Why not use <code>HTTPSender</code> always?</b> <code>HTTPSender</code> calls <code>MessageFormatter.writeTo()</code>,
+which for passthrough bodies serialises the AXIOM tree. That's exactly what we want to avoid
+when a pipe is available.</p>
+
+<h4><span class="pill added">new</span> <code>populateResponseOnMessageContext(MessageContext, CloseableHttpResponse)</code></h4>
+<p>Translates HttpClient 4 response → Axis2 MessageContext in the same shape the regular
+<code>AbstractHTTPSender</code> does, so downstream <code>OperationClient.execute()</code>
+can build the envelope via its standard builder pipeline:</p>
+<pre><code>msgCtx.setProperty(HTTPConstants.MC_HTTP_STATUS_CODE, statusCode);
+msgCtx.setProperty("transport.http.statusCode", String.valueOf(statusCode));
+msgCtx.setProperty(MessageContext.TRANSPORT_HEADERS, respHeaders);      // from response.getAllHeaders()
+msgCtx.setProperty(Constants.Configuration.CONTENT_TYPE, ctHeader.getValue());
+msgCtx.setProperty(MessageContext.TRANSPORT_IN, response.getEntity().getContent());
+msgCtx.setProperty("VT_HTTP_RESPONSE", response);  // for cleanup()</code></pre>
+
+<h4><span class="pill added">new</span> <code>isRestrictedHeader(String)</code></h4>
+<p>Drops <code>content-length</code>, <code>host</code>, <code>connection</code>,
+<code>transfer-encoding</code> before they are copied to the outbound request.
+HttpClient computes / owns all four — passing them through creates duplicates or
+mismatches that the backend rejects.</p>
+
+<h4><span class="pill added">new</span> <code>submitResponse(MessageContext)</code></h4>
+<p>Tiny dispatcher — pulls the <code>VTBlockingServerWorker</code> out of
+<code>Constants.OUT_TRANSPORT_INFO</code> and calls <code>worker.submitResponse(msgContext)</code>.
+The worker owns the <code>ClassicHttpResponse</code>.</p>
+
+<h4><code>cleanup(MessageContext)</code></h4>
+<p>PassThrough's implementation is empty. VT reads <code>HTTPConstants.HTTP_METHOD</code>
+and, if it's an <code>HttpRequestBase</code>, aborts it to release the pooled connection.</p>
+
+<h3>5.4 Removed / simplified functions</h3>
+<table>
+<tr><th>PassThrough function</th><th>Why gone</th></tr>
+<tr>
+  <td><code>sendRequestContent(MessageContext, EndpointReference)</code></td>
+  <td>Reactor-driven; replaced by
+      <code>writeMessageWithCommons()</code> + <code>sendStreamedRequest()</code></td>
+</tr>
+<tr>
+  <td><code>sendAsync(...)</code> and NIO callback hooks</td>
+  <td>Not needed — VT is synchronous</td>
+</tr>
+<tr>
+  <td><code>handleException(String, Exception)</code> with internal reactor log</td>
+  <td>Replaced by direct <code>throw AxisFault.makeFault(e)</code></td>
+</tr>
+<tr>
+  <td><code>reloadDynamicSSLConfig()</code>, <code>reloadProxyConfig()</code></td>
+  <td>SSL / proxy hot-reload deferred</td>
+</tr>
+<tr>
+  <td><code>init(...)</code> branches that wire
+      <code>PassThroughSenderManager</code>, <code>StreamInterceptors</code>,
+      <code>MBeanRegistrar</code></td>
+  <td>Out of scope for first cut; can be added additively</td>
+</tr>
+</table>
+
+<!-- ================= 6 WORKER ================= -->
+<h1>6. <code>VTBlockingServerWorker</code> vs <code>ServerWorker</code></h1>
+
+<div class="kv">
+  <div class="k">File</div><div class="mono">modules/transports/core/nhttp/src/main/java/org/apache/synapse/transport/passthru/vt/VTBlockingServerWorker.java</div>
+  <div class="k">Implements</div><div><code>OutTransportInfo</code> — <i>not</i> <code>Runnable</code></div>
+  <div class="k">Driven by</div><div>HttpCore 5 <code>HttpRequestHandler</code> lambda inside the listener</div>
+</div>
+
+<h3>6.1 Import changes</h3>
+<table>
+<tr><th>Area</th><th>ServerWorker</th><th>VTBlockingServerWorker</th><th>Why</th></tr>
+<tr>
+  <td>HTTP object model</td>
+  <td><code>SourceRequest</code>, <code>SourceResponse</code>, <code>SourceResponseFactory</code></td>
+  <td><code>ClassicHttpRequest</code>, <code>ClassicHttpResponse</code>,
+      <code>HttpEntity</code>, <code>ByteArrayEntity</code>,
+      <code>StringEntity</code>, <code>HttpContext</code>, <code>HttpStatus</code></td>
+  <td>HttpCore 5 gives the worker the parsed request and a writable response directly; no need for PassThrough's intermediate objects</td>
+</tr>
+<tr>
+  <td>Transport plumbing</td>
+  <td><code>NHttpServerConnection</code>, <code>SSLIOSession</code>,
+      <code>HttpInetConnection</code>, <code>BasicHttpEntity</code></td>
+  <td>— removed —</td>
+  <td>HttpCore 5 hides the connection. Addresses live in <code>HttpContext</code> attributes set by the listener</td>
+</tr>
+<tr>
+  <td>Body IO</td>
+  <td><code>Pipe</code> reads via NIO producer/consumer</td>
+  <td><code>InputStream</code> read synchronously from <code>httpRequest.getEntity().getContent()</code></td>
+  <td>VT can block on read; no decoder callbacks</td>
+</tr>
+<tr>
+  <td>REST / SOAP</td>
+  <td><code>RESTUtil</code>, <code>HTTPTransportUtils</code>, <code>BuilderUtil</code>,
+      <code>RequestURIBasedDispatcher</code>, <code>SOAP11Factory</code></td>
+  <td><span class="pill reused">all reused</span></td>
+  <td>The REST content-type handling, SOAP envelope bootstrap and dispatcher are
+      transport-agnostic</td>
+</tr>
+<tr>
+  <td>Logging / tenancy / correlation</td>
+  <td><code>CorrelationConstants</code>, <code>TenantInfoInitiator</code>,
+      <code>CustomLogSetter</code>,
+      <code>SynapseDebugInfoHolder</code>,
+      <code>StringEscapeUtils</code>,
+      <code>PassThroughCorrelationConfigDataHolder</code></td>
+  <td>— removed —</td>
+  <td>First-cut scope. Can be reintroduced inside <code>process()</code> without affecting the engine contract</td>
+</tr>
+<tr>
+  <td>State</td>
+  <td><code>WorkerState</code> enum with <code>CREATED</code>, etc.</td>
+  <td>Simple <code>volatile boolean responseSent</code></td>
+  <td>The worker runs inline on a VT; there are no queue stages to track</td>
+</tr>
+</table>
+
+<h3>6.2 Field changes</h3>
+<table>
+<tr><th>Field</th><th>ServerWorker</th><th>VTBlockingServerWorker</th></tr>
+<tr>
+  <td>Request</td>
+  <td><code>SourceRequest request</code> (PT type)</td>
+  <td><code>ClassicHttpRequest httpRequest</code> (HC5)</td>
+</tr>
+<tr>
+  <td>Response</td>
+  <td>— (built via <code>SourceResponseFactory</code> on demand)</td>
+  <td><code>ClassicHttpResponse httpResponse</code> — pre-created by HttpCore 5</td>
+</tr>
+<tr>
+  <td>Context</td>
+  <td>Constructed internally</td>
+  <td><code>HttpContext httpContext</code> — supplied by HttpCore 5, holds remote/local addresses set by the listener</td>
+</tr>
+<tr>
+  <td>Shared config</td>
+  <td><code>SourceConfiguration</code></td>
+  <td><span class="pill reused">identical</span></td>
+</tr>
+<tr>
+  <td>Service maps</td>
+  <td>(lives on the SourceConfiguration / listener)</td>
+  <td>Passed in as constructor args for lookup convenience</td>
+</tr>
+<tr>
+  <td>Correlation / WSDL</td>
+  <td><code>initiationTimestamp</code>, <code>correlationId</code>, <code>httpGetRequestProcessor</code>, <code>queuedTime</code>, <code>os</code></td>
+  <td>— removed —</td>
+</tr>
+</table>
+
+<h3>6.3 Function-level comparison</h3>
+
+<h4><code>run()</code> (NIO, on worker pool) → <code>process()</code> (VT, in-line)</h4>
+<p>ServerWorker is <code>Runnable</code> and is submitted to a pool. Its
+<code>run()</code> method walks the request, creates a <code>MessageContext</code>,
+and calls <code>AxisEngine.receive()</code>. It does <i>not</i> block on the response
+— the response is posted back asynchronously via <code>submitResponse()</code> called
+from <code>PassThroughHttpSender</code>.</p>
+
+<p><code>VTBlockingServerWorker.process()</code> is invoked synchronously by
+HttpCore 5's request handler; the whole mediation flow runs on this VT, including
+the backend call and response write. Structurally the method does:</p>
+
+<ol>
+  <li><b>Parse request metadata</b> from <code>ClassicHttpRequest</code>:
+    method, URI, case-insensitive header map, duplicate-header detection into
+    <code>excessHeaders</code>.</li>
+  <li><b>Build MessageContext</b> (<code>createMessageContext()</code>) —
+    sets transport in / out, server-side flag, incoming transport name,
+    transport headers, remote address from <code>HttpContext</code>.</li>
+  <li><b>Mark REST vs SOAP vs entity-enclosing</b> and call one of
+    <code>processEntityEnclosingRequest(true)</code> /
+    <code>processNonEntityEnclosingRESTHandler(..., true)</code>.
+    Both finish with <code>AxisEngine.receive(msgContext)</code>, which fires the
+    entire Synapse mediation sequence on this VT.</li>
+  <li><b>Safety net</b> in <code>finally</code>: if the sender never populated a
+    response (e.g. exception), write a default one so HttpCore 5 has something to
+    serialise. <code>500</code> + plain-text if the last-resort call itself fails.</li>
+  <li><b>Thorough cleanup</b>:
+    <ul>
+      <li>Mark IN and OUT operation contexts <code>setComplete(true)</code> and <code>cleanup()</code></li>
+      <li>Remove <code>ServiceGroupContext</code> from the <code>ConfigurationContext</code> cache</li>
+      <li>Strip heavyweight properties (<code>PASS_THROUGH_PIPE</code>, <code>TRANSPORT_HEADERS</code>, …)</li>
+      <li><code>MessageContext.destroyCurrentMessageContext()</code> — clears the ThreadLocal</li>
+    </ul>
+  </li>
+</ol>
+
+<div class="callout good">
+<b>Why cleanup is explicit here.</b> In NIO, the reactor thread is long-lived and
+Axis2 releases state as connection events arrive. In VT, the VT ends when
+<code>process()</code> returns — but the <code>MessageContext</code> ThreadLocal
+and the <code>OperationContext</code> references on <code>ConfigurationContext</code>
+are not automatically reaped (they'd leak the whole Synapse config). Explicit
+cleanup is the only reliable hook.
+</div>
+
+<h4><span class="pill added">new</span> <code>submitResponse(MessageContext responseMsgCtx)</code></h4>
+<p>Called by <code>VTHttpSender.submitResponse()</code> during the <code>respond</code>
+phase. Writes back onto the <code>ClassicHttpResponse</code>:</p>
+<ol>
+  <li>Status code — from <code>PassThroughConstants.HTTP_SC</code> (Integer or String)</li>
+  <li>Reason phrase — from <code>PassThroughConstants.HTTP_SC_DESC</code></li>
+  <li>Transport headers — skipping <code>VTConstants.HOP_BY_HOP_HEADERS</code></li>
+  <li>Body — three branches:
+    <ul>
+      <li><code>NO_ENTITY_BODY=true</code> → just status + headers</li>
+      <li><code>VT_INPUT_STREAM_PIPE</code> present <b>and</b> builder not invoked →
+          <code>bodyStream.readAllBytes()</code> into <code>ByteArrayEntity</code>
+          (pass-through response)</li>
+      <li>Otherwise — build via
+          <code>MessageFormatterDecoratorFactory.createMessageFormatterDecorator()</code> and
+          <code>formatter.writeTo()</code></li>
+    </ul>
+  </li>
+  <li>Set <code>responseSent = true</code> so the <code>finally</code> safety net doesn't double-write.</li>
+</ol>
+
+<h4><span class="pill reused">reused logic</span> <code>processEntityEnclosingRequest()</code></h4>
+<p>The content-type inference, SOAP envelope bootstrap, REST vs SOAP routing
+logic is ported nearly verbatim from PassThrough's ServerWorker. Key change:
+after identifying the body, it wraps <code>httpRequest.getEntity().getContent()</code> in a
+<code>VTInputStreamPipe</code> and stashes it on <code>PASS_THROUGH_PIPE</code>.</p>
+
+<h4><span class="pill reused">reused logic</span> <code>handleRESTUrlPost()</code></h4>
+<p>Port of ServerWorker's identically-named method. Uses
+<code>RequestURIBasedDispatcher</code>, <code>PassThroughConfiguration</code>,
+<code>TransportUtils.createSOAPMessage()</code> — identical to PassThrough's
+multi-tenant-aware REST URL handling.</p>
+
+<h4><span class="pill reused">reused logic</span> <code>processHttpRequestUri()</code></h4>
+<p>Calls <code>NhttpUtil.getRestUrlPostfix()</code> and constructs the
+<code>SERVICE_PREFIX</code> attribute — the exact pattern used by
+PassThrough. Difference: the local address/port come from
+<code>HttpContext</code> attributes (<code>CTX_LOCAL_ADDRESS</code>, <code>CTX_LOCAL_PORT</code>)
+set by the listener instead of being read off <code>NHttpServerConnection</code>.</p>
+
+<h4><code>createMessageContext()</code></h4>
+<table>
+<tr><th>Aspect</th><th>ServerWorker</th><th>VTBlockingServerWorker</th></tr>
+<tr>
+  <td>Non-blocking flag</td>
+  <td><code>CLIENT_API_NON_BLOCKING = TRUE</code></td>
+  <td><code>CLIENT_API_NON_BLOCKING = FALSE</code></td>
+</tr>
+<tr>
+  <td>Transport OUT selection</td>
+  <td>TransportOutDescription from SourceConfiguration</td>
+  <td>Try VT transport-out first; fall back to <code>Constants.TRANSPORT_HTTP</code></td>
+</tr>
+<tr>
+  <td>Transport IN</td>
+  <td>Source's TransportInDescription</td>
+  <td>Try HTTP first; fall back to source's; set <code>IncomingTransportName = http</code></td>
+</tr>
+<tr>
+  <td>Headers</td>
+  <td>TreeMap, case-insensitive — same pattern</td>
+  <td><span class="pill reused">identical</span></td>
+</tr>
+<tr>
+  <td>Remote address</td>
+  <td>From <code>HttpInetConnection.getRemoteAddress()</code></td>
+  <td>From <code>HttpContext.getAttribute(CTX_REMOTE_ADDRESS)</code></td>
+</tr>
+</table>
+
+<h3>6.4 Removed ServerWorker features (and impact)</h3>
+<table>
+<tr><th>Feature</th><th>Impact</th></tr>
+<tr>
+  <td>Correlation logs, correlation header, tenant-info initiators</td>
+  <td>Not exported to VT path yet. Easy to re-add by copying the relevant block into <code>process()</code>.</td>
+</tr>
+<tr>
+  <td>SSL cert-chain extraction</td>
+  <td>VT doesn't currently expose HTTPS; covered by future work (separate <code>VTPassThroughHttpSSLListener</code>).</td>
+</tr>
+<tr>
+  <td>WSDL / HTTP-GET processor (<code>httpGetRequestProcessor</code>)</td>
+  <td>WSDL-on-GET is not exercised in the initial deployments targeting VT. Fall-through goes to <code>processNonEntityEnclosingRESTHandler()</code>.</td>
+</tr>
+<tr>
+  <td>Wire logging via <code>SynapseDebugInfoHolder</code></td>
+  <td>Replaceable with HttpCore 5 logging interceptors.</td>
+</tr>
+<tr>
+  <td>State / timing instrumentation (<code>WorkerState</code>, <code>queuedTime</code>)</td>
+  <td>VT has no queue time — the worker runs immediately on accept. Obsolete.</td>
+</tr>
+</table>
+
+<!-- ================= 7 PIPE ================= -->
+<h1>7. <code>VTInputStreamPipe</code> vs <code>Pipe</code></h1>
+
+<div class="kv">
+  <div class="k">Files</div>
+  <div>
+    <code>vt/VTInputStreamPipe.java</code> — <b>50 LOC</b><br>
+    <code>passthru/Pipe.java</code> — <b>756 LOC</b>
+  </div>
+</div>
+
+<p>The single biggest code-size reduction in the VT transport, and the clearest
+expression of "VT blocks, so we don't need async machinery". Summary of what
+<code>Pipe</code> does and why each piece disappears under VT:</p>
+
+<table>
+<tr><th>Pipe concern</th><th>Why it exists in NIO</th><th>What replaces it under VT</th></tr>
+<tr>
+  <td><code>ControlledByteBuffer</code> + fixed-size ring</td>
+  <td>Producer (decoder callback) and consumer (formatter) run on different reactor threads; a bounded buffer is needed for back-pressure</td>
+  <td>Nothing — VT reads directly from the socket's <code>InputStream</code></td>
+</tr>
+<tr>
+  <td><code>IOControl producerIoControl</code> / <code>consumerIoControl</code></td>
+  <td>Used to <code>requestInput()</code> / <code>suspendInput()</code> on the reactor</td>
+  <td>Nothing — VT has no reactor</td>
+</tr>
+<tr>
+  <td><code>Lock lock = new ReentrantLock();<br>readCondition, writeCondition</code></td>
+  <td>Producer and consumer synchronise here</td>
+  <td>Nothing — single VT does the whole flow</td>
+</tr>
+<tr>
+  <td><code>DEFAULT_TIME_OUT_VALUE = 180000</code></td>
+  <td>Prevents deadlock if a producer stalls</td>
+  <td>Socket-level <code>soTimeout</code> on the <code>ServerSocket</code></td>
+</tr>
+<tr>
+  <td><code>TruncatedChunkException</code> handling</td>
+  <td>Manual chunked decoding</td>
+  <td>HttpCore 5 owns chunked decoding</td>
+</tr>
+<tr>
+  <td><code>ContentDecoder</code>, <code>ContentEncoder</code> APIs</td>
+  <td>Core of the NIO I/O model</td>
+  <td>Nothing — blocking streams</td>
+</tr>
+</table>
+
+<p><code>VTInputStreamPipe</code> is the entire replacement:</p>
+<pre><code>public class VTInputStreamPipe {
+    private final InputStream inputStream;
+    public VTInputStreamPipe(InputStream inputStream) { this.inputStream = inputStream; }
+    public InputStream getInputStream() { return inputStream; }
+}</code></pre>
+
+<p><b>Why it is still wrapped</b> instead of storing the raw <code>InputStream</code>:
+the Synapse mediator code checks
+<code>msgContext.getProperty(PASS_THROUGH_PIPE)</code> and branches on type. Having a
+dedicated wrapper class makes <code>instanceof VTInputStreamPipe</code> checks in
+<code>VTHttpSender</code> and <code>VTBlockingServerWorker</code> unambiguous — we never confuse
+it with a bare <code>InputStream</code> accidentally set elsewhere.</p>
+
+<!-- ================= 8 WORKERPOOL ================= -->
+<h1>8. <code>VirtualThreadWorkerPool</code> (new adapter)</h1>
+
+<div class="kv">
+  <div class="k">File</div><div class="mono">vt/VirtualThreadWorkerPool.java</div>
+  <div class="k">Implements</div><div><code>org.apache.axis2.transport.base.threads.WorkerPool</code></div>
+</div>
+
+<p>Axis2's <code>WorkerPool</code> interface is what the engine uses to submit
+<code>Runnable</code>s (mediator dispatches, error handlers, timers, etc.).
+The default impl, <code>NativeWorkerPool</code>, wraps a
+<code>ThreadPoolExecutor</code> with a fixed worker count. That bottlenecks the
+entire engine once the pool is saturated.</p>
+
+<p><code>VirtualThreadWorkerPool</code> satisfies the same interface but backs it
+with a virtual-thread-per-task executor (typically the one owned by the VT listener).
+Every <code>execute(Runnable)</code> spawns a fresh VT:</p>
+
+<pre><code>public class VirtualThreadWorkerPool implements WorkerPool {
+    private final ExecutorService executor;
+    public VirtualThreadWorkerPool(ExecutorService executor) { this.executor = executor; }
+    public void execute(Runnable task) { executor.submit(task); }
+    public int getActiveCount() { return -1; }     // VTs don't expose this
+    public int getQueueSize()   { return 0;  }     // no queue — immediate dispatch
+    public void shutdown(int timeout) {
+        executor.shutdown();
+        try { executor.awaitTermination(timeout, TimeUnit.SECONDS); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+    }
+}</code></pre>
+
+<p><b>Why no direct counterpart:</b> NIO uses <code>NativeThreadFactory</code>
+directly against a <code>ThreadPoolExecutor</code>. That mapping doesn't make
+sense here — VTs are so cheap that queueing is pointless.</p>
+
+<p><b>Why <code>getActiveCount()</code> returns <code>-1</code>:</b> the JDK
+doesn't expose live counts for VT executors without expensive thread-dump
+APIs. The metric is used only for diagnostics, so <code>-1</code> is the
+documented "unknown" sentinel.</p>
+
+<!-- ================= 9 CONSTANTS ================= -->
+<h1>9. <code>VTConstants</code> vs <code>PassThroughConstants</code></h1>
+
+<p><code>VTConstants</code> is small (120 LOC) and <i>additive</i> — it holds
+the few keys and defaults that are genuinely VT-only. Everything shared with
+the NIO transport (HTTP method names, <code>PASS_THROUGH_PIPE</code>,
+<code>MESSAGE_BUILDER_INVOKED</code>, <code>REST_URL_POSTFIX</code>, status
+keys, etc.) is reused directly from <code>PassThroughConstants</code>.</p>
+
+<h3>9.1 What VTConstants adds</h3>
+<table>
+<tr><th>Category</th><th>Constant</th><th>Purpose</th></tr>
+<tr><td rowspan="5">MessageContext property keys</td>
+    <td><code>VT_SOURCE_REQUEST</code></td>
+    <td>Reserved for future parallelism with PT's source-request metadata</td></tr>
+<tr><td><code>VT_SOURCE_CONFIGURATION</code></td>
+    <td>Worker puts the <code>SourceConfiguration</code> here for sender access</td></tr>
+<tr><td><code>VT_SOURCE_CONNECTION</code></td>
+    <td>Reserved for per-connection debug tooling</td></tr>
+<tr><td><code>VT_TARGET_CONFIGURATION</code></td>
+    <td>Parallel to <code>VT_SOURCE_CONFIGURATION</code> on the outbound side</td></tr>
+<tr><td><code>VT_INPUT_STREAM_PIPE</code></td>
+    <td>Alternate to <code>PASS_THROUGH_PIPE</code> when the pipe must be named explicitly (e.g. response-body pass-through)</td></tr>
+<tr><td rowspan="2">Transport wiring</td>
+    <td><code>VT_BLOCKING_CALL</code></td>
+    <td>Flag read by <code>VTHttpSender.invoke()</code> when invoked by <code>VTBlockingMsgSender</code></td></tr>
+<tr><td><code>VT_TRANSPORT_SENDER</code></td>
+    <td>ConfigurationContext key the sender registers itself under so <code>CallMediator.init()</code> can look it up</td></tr>
+<tr><td>Listener params</td>
+    <td><code>PARAM_PORT</code>, <code>PARAM_BIND_ADDRESS</code>, <code>PARAM_HOSTNAME</code>, <code>PARAM_BACKLOG</code>, <code>PARAM_SO_TIMEOUT</code>, <code>PARAM_KEEP_ALIVE_TIMEOUT</code>, <code>PARAM_CONNECT_TIMEOUT</code>, <code>PARAM_TCP_NODELAY</code>, <code>PARAM_SO_RCVBUF</code>, <code>PARAM_SO_SNDBUF</code>, <code>PARAM_MAX_REQUEST_SIZE</code></td>
+    <td>Mirrors the NIO param names but names them in one place to prevent typos</td></tr>
+<tr><td>Defaults</td>
+    <td><code>DEFAULT_BACKLOG=1024</code>, <code>DEFAULT_SO_TIMEOUT=60000</code>, <code>DEFAULT_KEEP_ALIVE_TIMEOUT=115000</code>, <code>DEFAULT_CONNECT_TIMEOUT=10000</code>, <code>DEFAULT_TCP_NODELAY=true</code>, <code>STREAM_BUFFER_SIZE=8192</code></td>
+    <td>Standard HTTP server defaults; 115s idle keep-alive matches Nginx/Jetty conventions</td></tr>
+<tr><td>Hop-by-hop set</td>
+    <td><code>HOP_BY_HOP_HEADERS = Set.of(transfer-encoding, content-length, connection, keep-alive, proxy-authenticate, proxy-authorization, te, trailers, upgrade)</code></td>
+    <td>RFC 7230 §6.1. Used by <code>VTBlockingServerWorker.submitResponse()</code> to drop headers HttpCore 5 will regenerate</td></tr>
+<tr><td>HttpContext keys</td>
+    <td><code>CTX_REMOTE_ADDRESS</code>, <code>CTX_LOCAL_ADDRESS</code>, <code>CTX_LOCAL_PORT</code></td>
+    <td>Attribute names the listener uses to bridge Java-socket metadata into HttpCore 5 context for the worker</td></tr>
+<tr><td>VT name prefix</td>
+    <td><code>VT_THREAD_PREFIX = "vt-passthru-"</code></td>
+    <td>Makes VT names discoverable in thread dumps</td></tr>
+</table>
+
+<h3>9.2 What VTConstants reuses directly from <code>PassThroughConstants</code></h3>
+<pre><code>HTTP_GET                       // method discrimination
+HTTP_DELETE
+REST_GET_DELETE_INVOKE
+REST_URL_POSTFIX
+SERVICE_PREFIX
+EPR_TO_SERVICE_NAME_MAP
+SERVICE_URI_LOCATION
+PASS_THROUGH_TRANSPORT_WORKER_POOL
+PASS_THROUGH_PIPE
+MESSAGE_BUILDER_INVOKED
+HTTP_SC                        // response status
+HTTP_SC_DESC
+NO_ENTITY_BODY
+APPLICATION_OCTET_STREAM
+REST_REQUEST_CONTENT_TYPE
+IGNORE_SC_ACCEPTED
+CORRELATION_LOGGER
+REQUEST_CONTENT_TYPE</code></pre>
+<p><b>Why not redefine these:</b> they are part of the public property-key contract
+between transport and mediators. Re-declaring them would silently fork the
+contract — mediators reading <code>PASS_THROUGH_PIPE</code> would not see our
+pipe. The intent is explicit: VT piggy-backs on the same property-key vocabulary.</p>
+
+<!-- ================= 10 REUSED UTILITIES ================= -->
+<h1>10. Reused Existing Utilities (Cross-Cutting)</h1>
+
+<p>The table below consolidates <i>all</i> pre-existing Synapse/Axis2 classes the
+VT transport leans on unchanged. Demonstrates that VT is a <i>surgical</i>
+insertion — not a rewrite.</p>
+
+<table>
+<tr><th>Reused type</th><th>Consumer</th><th>Role</th></tr>
+<tr>
+  <td><code>SourceConfiguration</code></td>
+  <td>Listener, Worker, Sender</td>
+  <td>Holds transport params, metrics, WorkerPool, scheme, EPR prefixes</td>
+</tr>
+<tr>
+  <td><code>TargetConfiguration</code></td>
+  <td>Sender</td>
+  <td>Same for outbound; powers <code>PassThroughTransportUtils.removeUnwantedHeaders</code></td>
+</tr>
+<tr>
+  <td><code>PassThroughTransportMetricsCollector</code></td>
+  <td>Listener, Sender</td>
+  <td>JMX-style counters</td>
+</tr>
+<tr>
+  <td><code>AxisServiceTracker</code>, <code>AxisServiceFilter</code>, <code>AxisServiceTrackerListener</code></td>
+  <td>Listener</td>
+  <td>EPR map updates on service deploy/undeploy</td>
+</tr>
+<tr>
+  <td><code>SessionContextUtil</code></td>
+  <td>Listener (<code>getSessionContext</code>)</td>
+  <td>Session affinity for sticky transports</td>
+</tr>
+<tr>
+  <td><code>NhttpUtil</code> (<code>getRestUrlPostfix</code>, …)</td>
+  <td>Worker</td>
+  <td>URI → service-prefix / REST-postfix split</td>
+</tr>
+<tr>
+  <td><code>RESTUtil.dispatchAndVerify</code></td>
+  <td>Worker (<code>handleRESTUrlPost</code>)</td>
+  <td>Populate Axis2 operation/service from REST URI</td>
+</tr>
+<tr>
+  <td><code>HTTPTransportUtils.isRESTRequest</code>, <code>initializeMessageContext</code></td>
+  <td>Worker</td>
+  <td>Content-type classification + SOAP version selection</td>
+</tr>
+<tr>
+  <td><code>BuilderUtil.getCharSetEncoding</code></td>
+  <td>Worker</td>
+  <td>Charset extraction from <code>Content-Type</code></td>
+</tr>
+<tr>
+  <td><code>PassThroughTransportUtils.removeUnwantedHeaders</code></td>
+  <td>Sender</td>
+  <td>Strip <code>Content-Length</code>, etc. before send</td>
+</tr>
+<tr>
+  <td><code>PassThroughTransportUtils.getOMOutputFormat</code></td>
+  <td>Worker (<code>submitResponse</code>)</td>
+  <td>OMOutputFormat with transport-aware charset settings</td>
+</tr>
+<tr>
+  <td><code>MessageFormatterDecoratorFactory</code></td>
+  <td>Worker</td>
+  <td>Correct <code>MessageFormatter</code> (JSON, XML, MIME) per content type</td>
+</tr>
+<tr>
+  <td><code>AbstractHTTPSender</code> / <code>HTTPSender</code> (Axis2)</td>
+  <td>Sender (<code>writeMessageWithCommons</code>)</td>
+  <td>OM-tree fallback path when streaming is not applicable</td>
+</tr>
+<tr>
+  <td><code>ServletBasedOutTransportInfo</code>, <code>AxisHttpResponseImpl</code></td>
+  <td>Sender (<code>sendUsingOutputStream</code>)</td>
+  <td>Servlet / JAX-WS compatibility when the response is written to a provided OutputStream</td>
+</tr>
+<tr>
+  <td><code>MessageProcessorSelector</code></td>
+  <td>Sender</td>
+  <td>Formatter lookup when writing responses via OutputStream</td>
+</tr>
+<tr>
+  <td><code>TransportUtils</code> (<code>doWriteMTOM</code>, <code>doWriteSwA</code>, <code>isDoingREST</code>, …)</td>
+  <td>Sender</td>
+  <td>Standard format flags</td>
+</tr>
+<tr>
+  <td><code>AddressingHelper</code></td>
+  <td>Sender</td>
+  <td><code>isReplyRedirected</code> check</td>
+</tr>
+<tr>
+  <td><code>JavaUtils</code> (<code>isTrueExplicitly</code>, …)</td>
+  <td>Sender</td>
+  <td>Safe boolean parsing</td>
+</tr>
+<tr>
+  <td><code>PassThroughConstants</code> (full enum of keys)</td>
+  <td>All three files</td>
+  <td>See §9.2</td>
+</tr>
+<tr>
+  <td><code>Scheme</code></td>
+  <td>Listener, Sender</td>
+  <td>Axis2 scheme descriptor (name, default port, secure flag)</td>
+</tr>
+<tr>
+  <td><code>NhttpConstants.EXCESS_TRANSPORT_HEADERS</code>, <code>REMOTE_HOST</code></td>
+  <td>Worker</td>
+  <td>Duplicate-header slot and remote-host attribute</td>
+</tr>
+</table>
+
+<!-- ================= 11 DEPLOYMENT ================= -->
+<h1>11. Deployment Notes &amp; Risks</h1>
+
+<h3>11.1 axis2.xml configuration</h3>
+<pre><code>&lt;transportReceiver name="vt-http"
+                   class="org.apache.synapse.transport.passthru.vt.VTPassThroughHttpListener"&gt;
+    &lt;parameter name="port"&gt;8300&lt;/parameter&gt;
+    &lt;parameter name="so_timeout"&gt;60000&lt;/parameter&gt;
+    &lt;parameter name="backlog"&gt;1024&lt;/parameter&gt;
+&lt;/transportReceiver&gt;
+
+&lt;transportSender name="http"
+                 class="org.apache.synapse.transport.passthru.vt.VTHttpSender"&gt;
+    &lt;parameter name="PROTOCOL"&gt;HTTP/1.1&lt;/parameter&gt;
+    &lt;parameter name="Transfer-Encoding"&gt;chunked&lt;/parameter&gt;
+    &lt;parameter name="cacheHttpClient"&gt;true&lt;/parameter&gt;
+    &lt;parameter name="defaultMaxConnPerHost"&gt;500&lt;/parameter&gt;
+    &lt;parameter name="maxTotalConnections"&gt;1000&lt;/parameter&gt;
+&lt;/transportSender&gt;</code></pre>
+
+<h3>11.2 axis2_blocking_client.xml (for CallMediator blocking path)</h3>
+<pre><code>&lt;transportSender name="http"
+                 class="org.apache.synapse.transport.passthru.vt.VTHttpSender"&gt;
+    &lt;parameter name="PROTOCOL"&gt;HTTP/1.1&lt;/parameter&gt;
+    &lt;parameter name="Transfer-Encoding"&gt;chunked&lt;/parameter&gt;
+    &lt;parameter name="cacheHttpClient"&gt;true&lt;/parameter&gt;
+&lt;/transportSender&gt;</code></pre>
+<div class="callout">
+<b>Mandatory:</b> <code>cacheHttpClient=true</code>. Without it
+<code>VTHttpSender.init()</code> does not build the pooled
+<code>CloseableHttpClient</code>, and <code>sendStreamedRequest()</code> throws an
+<code>AxisFault</code>.
+</div>
+
+<h3>11.3 Known limitations (first cut)</h3>
+<ul>
+  <li><b>HTTPS not yet wired</b> — SSL listener is a follow-up.</li>
+  <li><b>JMX MBeans not registered</b> — metrics object is created but not exposed.</li>
+  <li><b>Stream interceptors / wire logging</b> not wired — can be added as HttpCore 5 interceptors.</li>
+  <li><b>WSDL GET-request processor</b> not integrated — affects <code>?wsdl</code> endpoints on the VT listener only.</li>
+  <li><b>Inbound endpoint managers</b> calling <code>PassThroughInboundEndpointHandler.getPassThroughSourceConfiguration()</code>
+      still expect the NIO transport. Running VT alongside NIO avoids this;
+      VT-only deployments need the NIO listener disabled <b>and</b> the inbound endpoint manager
+      updated to ask for the VT source configuration.</li>
+  <li><b>Correlation log / tenant initiator</b> is a trivial backport once the core flow is green.</li>
+</ul>
+
+<h3>11.4 Behavioural parity with NIO (validated by branch-level tests)</h3>
+<ul>
+  <li>Zero-copy body streaming triggers on the same mediator shapes as NIO
+      (<code>&lt;call/&gt;</code> without content-aware predecessor). See <code>CallMediator.isContentAware()=false</code>.</li>
+  <li>A <code>&lt;log/&gt;</code> (any level except <code>message_template</code> /
+      <code>custom</code>) before <code>&lt;call/&gt;</code> forces an OM build, same as NIO.</li>
+  <li>Response body from the backend flows through
+      <code>TRANSPORT_IN</code> identically to <code>AbstractHTTPSender</code>.</li>
+</ul>
+
+<hr>
+<p class="small">
+End of document — <b>WSO2 Synapse VT Transport</b> — code review package.
+</p>
+
+</body>
+</html>

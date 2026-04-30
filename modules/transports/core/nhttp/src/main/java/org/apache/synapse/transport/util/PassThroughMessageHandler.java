@@ -25,6 +25,7 @@ import org.apache.synapse.transport.passthru.PassThroughConstants;
 import org.apache.synapse.transport.passthru.Pipe;
 import org.apache.synapse.transport.passthru.config.PassThroughConfiguration;
 import org.apache.synapse.transport.passthru.util.RelayUtils;
+import org.apache.synapse.transport.passthru.vt.VTInputStreamPipe;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -46,7 +47,16 @@ public class PassThroughMessageHandler implements MessageHandler {
     @Override
     public InputStream getMessageDataStream(MessageContext context) throws IOException {
 
-        Pipe pipe = (Pipe) context.getProperty(PassThroughConstants.PASS_THROUGH_PIPE);
+        Object pipeObj = context.getProperty(PassThroughConstants.PASS_THROUGH_PIPE);
+
+        // Handle VTInputStreamPipe directly — no NIO buffer management needed.
+        // The VT transport wraps the response body in a lightweight
+        // VTInputStreamPipe instead of an NIO Pipe.
+        if (pipeObj instanceof VTInputStreamPipe) {
+            return ((VTInputStreamPipe) pipeObj).getInputStream();
+        }
+
+        Pipe pipe = (pipeObj instanceof Pipe) ? (Pipe) pipeObj : null;
 
         if (pipe != null && context.getProperty(PassThroughConstants.BUFFERED_INPUT_STREAM) != null) {
             BufferedInputStream bufferedInputStream =

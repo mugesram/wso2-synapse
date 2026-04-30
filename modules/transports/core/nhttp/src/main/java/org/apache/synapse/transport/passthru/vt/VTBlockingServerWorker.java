@@ -49,6 +49,7 @@ import org.apache.hc.core5.http.HttpEntity;
 import org.apache.hc.core5.http.HttpException;
 import org.apache.hc.core5.http.HttpStatus;
 import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
+import org.apache.hc.core5.http.io.entity.InputStreamEntity;
 import org.apache.hc.core5.http.io.entity.StringEntity;
 import org.apache.http.protocol.HTTP;
 import org.apache.hc.core5.http.protocol.HttpContext;
@@ -120,6 +121,37 @@ public class VTBlockingServerWorker implements OutTransportInfo {
     /** Request URI */
     private String uri;
 
+    // ---- Streaming response stash ----
+    // Set by VTHttpSender.populateResponseOnMessageContext() via the worker
+    // reference carried on axisOutMsgCtx.OUT_TRANSPORT_INFO.  Read by
+    // submitResponse() to bypass the fragile property-propagation chain
+    // through Axis2's OperationClient → returnMsgCtx → axisInMsgCtx.
+    private VTInputStreamPipe streamPipe;
+    private int streamStatus;
+    private String streamReason;
+    private Map<String, String> streamHeaders;
+    private String streamContentType;
+    private java.io.Closeable streamRawResponse;
+    private boolean streamStashed;
+
+    /**
+     * Called by {@link VTHttpSender#populateResponseOnMessageContext} to stash
+     * the streaming response state directly on the worker.  This avoids
+     * relying on Axis2's MessageContext property propagation across the
+     * OperationClient boundary.
+     */
+    public void stashStreamingResponse(VTInputStreamPipe pipe, int status,
+            String reason, Map<String, String> headers, String contentType,
+            java.io.Closeable rawResponse) {
+        this.streamPipe = pipe;
+        this.streamStatus = status;
+        this.streamReason = reason;
+        this.streamHeaders = headers;
+        this.streamContentType = contentType;
+        this.streamRawResponse = rawResponse;
+        this.streamStashed = true;
+    }
+
     public VTBlockingServerWorker(ClassicHttpRequest httpRequest,
                                   ClassicHttpResponse httpResponse,
                                   HttpContext httpContext,
@@ -172,6 +204,7 @@ public class VTBlockingServerWorker implements OutTransportInfo {
             msgContext.setProperty(Constants.OUT_TRANSPORT_INFO, this);
             msgContext.setProperty(VTConstants.VT_SOURCE_CONFIGURATION, sourceConfiguration);
             msgContext.setProperty(Constants.Configuration.HTTP_METHOD, method);
+            msgContext.setProperty(VTConstants.VT_TRANSPORT_ACTIVE, Boolean.TRUE);
 
             if (PassThroughConstants.HTTP_GET.equals(method)
                     || PassThroughConstants.HTTP_DELETE.equals(method)) {
@@ -261,9 +294,32 @@ public class VTBlockingServerWorker implements OutTransportInfo {
                     msgContext.removeProperty(VTConstants.VT_SOURCE_CONFIGURATION);
                     msgContext.removeProperty(Constants.OUT_TRANSPORT_INFO);
                     msgContext.removeProperty(PassThroughConstants.PASS_THROUGH_PIPE);
+                    msgContext.removeProperty(VTConstants.VT_INPUT_STREAM_PIPE);
                     msgContext.removeProperty(MessageContext.TRANSPORT_HEADERS);
                 } catch (Exception ignore) { }
+
+                // 5. Safety-net cleanup for backend HTTP response.
+                // In the streaming path, the CloseableHttpResponse is normally
+                // closed by the auto-closing FilterInputStream wrapper in
+                // submitResponse(). This covers non-streaming (OM-tree fallback)
+                // and error cases.
+                try {
+                    Object vtResp = msgContext.getProperty("VT_HTTP_RESPONSE");
+                    if (vtResp instanceof java.io.Closeable) {
+                        ((java.io.Closeable) vtResp).close();
+                    }
+                    msgContext.removeProperty("VT_HTTP_RESPONSE");
+                } catch (Exception ignore) { }
             }
+            // 6. Clear streaming response stash so this worker instance does
+            //    not carry state if reused.
+            streamPipe = null;
+            streamHeaders = null;
+            streamContentType = null;
+            streamReason = null;
+            streamRawResponse = null;
+            streamStatus = 0;
+            streamStashed = false;
             // 6. Clear ThreadLocal
             MessageContext.destroyCurrentMessageContext();
         }
@@ -284,57 +340,130 @@ public class VTBlockingServerWorker implements OutTransportInfo {
 
         try {
             // ---- Status code ----
-            Object httpSC = responseMsgCtx.getProperty(PassThroughConstants.HTTP_SC);
-            if (httpSC instanceof Integer) {
-                httpResponse.setCode((Integer) httpSC);
-            } else if (httpSC instanceof String) {
-                httpResponse.setCode(Integer.parseInt((String) httpSC));
+            // Prefer the stashed status (set by VTHttpSender directly on the
+            // worker) over the msgCtx property to bypass the OperationClient
+            // property-propagation gap.
+            if (streamStashed) {
+                httpResponse.setCode(streamStatus > 0 ? streamStatus : HttpStatus.SC_OK);
             } else {
-                httpResponse.setCode(HttpStatus.SC_OK);
+                Object httpSC = responseMsgCtx.getProperty(PassThroughConstants.HTTP_SC);
+                if (httpSC instanceof Integer) {
+                    httpResponse.setCode((Integer) httpSC);
+                } else if (httpSC instanceof String) {
+                    httpResponse.setCode(Integer.parseInt((String) httpSC));
+                } else {
+                    httpResponse.setCode(HttpStatus.SC_OK);
+                }
             }
 
             // ---- Reason phrase ----
-            Object httpSCDesc = responseMsgCtx.getProperty(PassThroughConstants.HTTP_SC_DESC);
-            if (httpSCDesc instanceof String) {
-                httpResponse.setReasonPhrase((String) httpSCDesc);
+            if (streamStashed && streamReason != null) {
+                httpResponse.setReasonPhrase(streamReason);
+            } else {
+                Object httpSCDesc = responseMsgCtx.getProperty(PassThroughConstants.HTTP_SC_DESC);
+                if (httpSCDesc instanceof String) {
+                    httpResponse.setReasonPhrase((String) httpSCDesc);
+                }
             }
 
             // ---- Transport headers (skip hop-by-hop) ----
-            @SuppressWarnings("unchecked")
-            Map<String, Object> transportHeaders =
-                    (Map<String, Object>) responseMsgCtx.getProperty(
-                            MessageContext.TRANSPORT_HEADERS);
-            if (transportHeaders != null) {
-                for (Map.Entry<String, Object> entry : transportHeaders.entrySet()) {
+            if (streamStashed && streamHeaders != null) {
+                for (Map.Entry<String, String> entry : streamHeaders.entrySet()) {
                     if (entry.getValue() != null
                             && !VTConstants.HOP_BY_HOP_HEADERS.contains(
                             entry.getKey().toLowerCase())) {
-                        httpResponse.addHeader(entry.getKey(),
-                                entry.getValue().toString());
+                        httpResponse.addHeader(entry.getKey(), entry.getValue());
+                    }
+                }
+            } else {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> transportHeaders =
+                        (Map<String, Object>) responseMsgCtx.getProperty(
+                                MessageContext.TRANSPORT_HEADERS);
+                if (transportHeaders != null) {
+                    for (Map.Entry<String, Object> entry : transportHeaders.entrySet()) {
+                        if (entry.getValue() != null
+                                && !VTConstants.HOP_BY_HOP_HEADERS.contains(
+                                entry.getKey().toLowerCase())) {
+                            httpResponse.addHeader(entry.getKey(),
+                                    entry.getValue().toString());
+                        }
                     }
                 }
             }
 
             // ---- Body ----
-            Boolean noEntityBody = (Boolean) responseMsgCtx
-                    .getProperty(PassThroughConstants.NO_ENTITY_BODY);
-            VTInputStreamPipe vtInputStreamPipe =
-                    (VTInputStreamPipe) responseMsgCtx.getProperty(VTConstants.VT_INPUT_STREAM_PIPE);
             boolean messageBuilderInvoked =
                     Boolean.TRUE.equals(responseMsgCtx.getProperty(PassThroughConstants.MESSAGE_BUILDER_INVOKED));
 
-            if (noEntityBody != null && noEntityBody) {
+            // Prefer stashed pipe; fall back to msgCtx properties for OM path
+            VTInputStreamPipe vtInputStreamPipe;
+            if (streamStashed && streamPipe != null) {
+                vtInputStreamPipe = streamPipe;
+            } else {
+                Object pipeObj = responseMsgCtx.getProperty(VTConstants.VT_INPUT_STREAM_PIPE);
+                if (!(pipeObj instanceof VTInputStreamPipe)) {
+                    pipeObj = responseMsgCtx.getProperty(PassThroughConstants.PASS_THROUGH_PIPE);
+                }
+                vtInputStreamPipe = (pipeObj instanceof VTInputStreamPipe)
+                        ? (VTInputStreamPipe) pipeObj : null;
+            }
+
+            // NO_ENTITY_BODY may have been set during inbound request handling for
+            // GET/DELETE (line ~740). Synapse reuses the same axis2 MessageContext
+            // for the response, so that request-side flag would otherwise mask a
+            // real response body. A stashed streaming pipe (or a pipe still on the
+            // msgCtx) is unambiguous proof the backend returned a body — ignore the
+            // stale flag in that case.
+            boolean hasStreamingBody = vtInputStreamPipe != null && !messageBuilderInvoked;
+            boolean noEntityBody = !hasStreamingBody && Boolean.TRUE.equals(
+                    responseMsgCtx.getProperty(PassThroughConstants.NO_ENTITY_BODY));
+
+            if (noEntityBody) {
                 // No body — HttpCore 5 writes just the status + headers
-            } else if (vtInputStreamPipe != null && !messageBuilderInvoked) {
+            } else if (hasStreamingBody) {
                 InputStream bodyStream = vtInputStreamPipe.getInputStream();
                 if (bodyStream != null) {
-                    byte[] bodyBytes = bodyStream.readAllBytes();
-                    if (bodyBytes.length > 0) {
-                        String contentType = getResponseContentType(responseMsgCtx);
-                        ContentType parsedContentType = parseContentTypeOrDefault(contentType);
-                        httpResponse.setEntity(new ByteArrayEntity(bodyBytes, parsedContentType));
-                    } else {
-                        responseMsgCtx.setProperty(PassThroughConstants.NO_ENTITY_BODY, Boolean.TRUE);
+                    String contentType = (streamStashed && streamContentType != null)
+                            ? streamContentType : getResponseContentType(responseMsgCtx);
+                    ContentType parsedContentType = parseContentTypeOrDefault(contentType);
+
+                    // Wrap stream for auto-cleanup: when HttpCore 5 finishes
+                    // writing the entity, closing this stream also releases
+                    // the pooled backend HTTP connection via
+                    // CloseableHttpResponse.close().
+                    final Object backendResp = streamStashed
+                            ? streamRawResponse
+                            : responseMsgCtx.getProperty("VT_HTTP_RESPONSE");
+                    InputStream autoClosingStream = new java.io.FilterInputStream(bodyStream) {
+                        @Override
+                        public void close() throws IOException {
+                            try {
+                                super.close();
+                            } finally {
+                                if (backendResp instanceof java.io.Closeable) {
+                                    try {
+                                        ((java.io.Closeable) backendResp).close();
+                                    } catch (IOException ignored) { }
+                                }
+                            }
+                        }
+                    };
+
+                    // Transfer ownership of VT_HTTP_RESPONSE to the auto-closing
+                    // stream; remove from context so process() finally doesn't
+                    // double-close it.
+                    responseMsgCtx.removeProperty("VT_HTTP_RESPONSE");
+
+                    // Use InputStreamEntity for true streaming — no buffering
+                    // in memory.  contentLength=-1 tells HttpCore 5 to use
+                    // chunked transfer encoding.
+                    httpResponse.setEntity(new InputStreamEntity(
+                            autoClosingStream, -1L, parsedContentType));
+
+                    if (log.isDebugEnabled()) {
+                        log.debug("VTBlockingServerWorker: streaming response body via "
+                                + "InputStreamEntity (no OM build, no memory buffer)");
                     }
                 } else {
                     responseMsgCtx.setProperty(PassThroughConstants.NO_ENTITY_BODY, Boolean.TRUE);

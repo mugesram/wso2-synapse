@@ -116,4 +116,25 @@ public final class VTConstants {
     public static final String CTX_LOCAL_ADDRESS = "vt.local.address";
     /** Local port stored in HttpContext */
     public static final String CTX_LOCAL_PORT = "vt.local.port";
+
+    /**
+     * MessageContext property set by {@link VTBlockingServerWorker} on every
+     * inbound request (including GET/DELETE which have no body and therefore
+     * no {@code PASS_THROUGH_PIPE}).  {@code BlockingMsgSender} uses this to
+     * detect VT transport mode and enable response streaming even when the
+     * request had no body.
+     */
+    public static final String VT_TRANSPORT_ACTIVE = "VT_TRANSPORT_ACTIVE";
+
+    /**
+     * ConfigurationContext property key for the pooled HttpClient 4.5.x
+     * {@code CloseableHttpClient} used by {@link VTHttpSender#sendStreamedRequest}.
+     * <p>
+     * A VT-specific key is required because {@code HTTPConstants.CACHED_HTTP_CLIENT}
+     * is shared with Axis2's legacy {@code CommonsHTTPTransportSender}, which stores
+     * a Commons HttpClient 3.x ({@code org.apache.commons.httpclient.HttpClient}) under
+     * the same key. When both senders are active in the same ConfigurationContext,
+     * the legacy client overwrites ours and reading it back causes a ClassCastException.
+     */
+    public static final String VT_CACHED_HTTP_CLIENT = "VT_CACHED_HTTP_CLIENT";
 }

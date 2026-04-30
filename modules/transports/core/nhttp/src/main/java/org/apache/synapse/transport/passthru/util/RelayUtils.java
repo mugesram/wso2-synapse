@@ -51,6 +51,7 @@ import org.apache.synapse.transport.passthru.SourceContext;
 import org.apache.synapse.transport.passthru.TargetContext;
 import org.apache.synapse.transport.passthru.TargetRequest;
 import org.apache.synapse.transport.passthru.config.PassThroughConfiguration;
+import org.apache.synapse.transport.passthru.vt.VTInputStreamPipe;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
@@ -102,17 +103,23 @@ public class RelayUtils {
     public static void buildMessage(MessageContext messageContext, boolean earlyBuild)
             throws IOException, XMLStreamException {
 
-        final Pipe pipe = (Pipe) messageContext.getProperty(PassThroughConstants.PASS_THROUGH_PIPE);
+        // Support both NIO Pipe and VT VTInputStreamPipe on PASS_THROUGH_PIPE.
+        // The VT transport sets a VTInputStreamPipe instead of an NIO Pipe;
+        // a hard cast to Pipe would ClassCastException.
+        Object pipeObj = messageContext.getProperty(PassThroughConstants.PASS_THROUGH_PIPE);
+        final Pipe pipe = (pipeObj instanceof Pipe) ? (Pipe) pipeObj : null;
+        final VTInputStreamPipe vtPipe = (pipeObj instanceof VTInputStreamPipe)
+                ? (VTInputStreamPipe) pipeObj : null;
 
         if (messageContext.getProperty(Constants.Configuration.CONTENT_TYPE) != null) {
             if (log.isDebugEnabled()) {
                 log.debug("Content Type is " + messageContext.getProperty(Constants.Configuration.CONTENT_TYPE));
             }
 
-            if (pipe != null
+            if ((pipe != null || vtPipe != null)
                 && !Boolean.TRUE.equals(messageContext
                                                 .getProperty(PassThroughConstants.MESSAGE_BUILDER_INVOKED)) && forcePTBuild) {
-                InputStream in = pipe.getInputStream();
+                InputStream in = pipe != null ? pipe.getInputStream() : vtPipe.getInputStream();
 
                 Object http_sc = messageContext.getProperty(NhttpConstants.HTTP_SC);
                 if (http_sc != null && http_sc instanceof Integer && http_sc.equals(202)) {
